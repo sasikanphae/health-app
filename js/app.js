@@ -336,9 +336,24 @@ function renderTimer() {
 }
 
 // ---------- sheets (stack + history) ----------
+// Sheets close directly. Browser history is only an extra so the phone's back
+// button closes a sheet; inside a frame (e.g. an embedded preview) the history
+// is shared with the host page, so it isn't touched there at all.
+const useHistory = (() => {
+  try {
+    return window.self === window.top;
+  } catch {
+    return false;
+  }
+})();
+
 function pushSheet(sheet) {
   ui.sheets.push(sheet);
-  history.pushState({ sheet: ui.sheets.length }, '');
+  if (useHistory) {
+    try {
+      history.pushState({ sheet: ui.sheets.length }, '');
+    } catch { /* history unavailable: buttons still close sheets */ }
+  }
   $('#sheet').scrollTop = 0;
   renderSheet();
 }
@@ -350,12 +365,10 @@ function replaceSheet(sheet) {
 }
 
 const topSheet = () => ui.sheets[ui.sheets.length - 1];
-const popSheet = () => history.back();
 
-window.addEventListener('popstate', () => {
-  const depth = history.state?.sheet ?? 0;
-  const closed = ui.sheets.slice(depth);
-  ui.sheets.length = Math.min(ui.sheets.length, depth);
+function closeSheetsTo(depth) {
+  if (depth >= ui.sheets.length) return;
+  const closed = ui.sheets.splice(depth);
   // Closing the first-run questions early just uses the defaults (editable later).
   if (closed.some((s) => s.type === 'onboard') && !state.profile) {
     state.profile = defaultProfile(state.legacyGymDays);
@@ -365,6 +378,16 @@ window.addEventListener('popstate', () => {
   ui.showAlts = false;
   renderSheet();
   render();
+}
+
+function popSheet() {
+  closeSheetsTo(ui.sheets.length - 1);
+  // Drop the matching history entry; the popstate it fires is then a no-op.
+  if (useHistory && (history.state?.sheet ?? 0) > ui.sheets.length) history.back();
+}
+
+window.addEventListener('popstate', () => {
+  if (useHistory) closeSheetsTo(history.state?.sheet ?? 0);
 });
 
 function renderSheet() {
@@ -1550,7 +1573,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---------- start ----------
-history.replaceState(null, '');
+if (useHistory) history.replaceState(null, '');
 render();
 if (!state.profile) openOnboard();
 tick();
@@ -1567,16 +1590,17 @@ photos.all().then((all) => {
 // Links opened from a notification when no window was open: ?r=<id>&t=<type>&a=<action>
 const params = new URLSearchParams(location.search);
 if (params.has('r') && state.profile) {
-  history.replaceState(null, '', location.pathname);
+  if (useHistory) history.replaceState(null, '', location.pathname);
   handleReminderAction({ id: params.get('r'), type: params.get('t'), action: params.get('a') });
 }
 
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js')
-    .then(() => navigator.serviceWorker.ready)
-    .then((reg) => { swReg = reg; })
-    .catch(() => {});
-  navigator.serviceWorker.addEventListener('message', (e) => {
-    if (e.data?.kind === 'reminder') handleReminderAction(e.data);
-  });
-}
+// Sandboxed frames throw on merely reading navigator.serviceWorker.
+try {
+  const sw = location.protocol !== 'file:' ? navigator.serviceWorker : null;
+  if (sw) {
+    sw.register('sw.js').then(() => sw.ready).then((reg) => { swReg = reg; }).catch(() => {});
+    sw.addEventListener('message', (e) => {
+      if (e.data?.kind === 'reminder') handleReminderAction(e.data);
+    });
+  }
+} catch { /* no offline support or notification buttons here; everything else works */ }
