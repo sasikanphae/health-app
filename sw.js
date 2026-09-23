@@ -1,14 +1,16 @@
 // Offline support (network first, cache fallback) and notification button handling.
-const CACHE = 'health-app-v3';
+const CACHE = 'health-app-v4';
 const ASSETS = [
   './',
   'index.html',
   'style.css',
   'js/app.js',
   'js/art.js',
+  'js/body.js',
   'js/copy.js',
   'js/gym-data.js',
   'js/health.js',
+  'js/lifts.js',
   'js/meals.js',
   'js/planner.js',
   'js/store.js',

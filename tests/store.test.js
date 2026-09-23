@@ -42,6 +42,12 @@ test('migrateV2 keeps check-ins, water, machine settings and checklist', () => {
   assert.ok(s.settings.reminders.every((r) => r.type !== 'mood'));
 });
 
+test('old machine weights seed the lift log', () => {
+  const s = normalize({ days: {}, machines: { 'chest-press': { seat: '4', weight: 20, updatedAt: new Date(2026, 8, 1).getTime() } } });
+  assert.deepEqual(s.lifts['chest-press'], [{ date: '2026-09-01', weight: 20, sets: null, target: null, completed: null, intensity: 'hard' }]);
+  assert.deepEqual(s.weights, []);
+});
+
 test('migrateV1 keeps water', () => {
   const s = migrateV1({ log: { '2026-09-20': { water: 5, steps: 900 } } });
   assert.equal(s.days['2026-09-20'].water, 5);

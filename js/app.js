@@ -14,6 +14,11 @@ import {
 } from './gym-data.js';
 import { mascot, machineArt, muscleMap } from './art.js';
 import {
+  ACTIVITY_LEVELS, WEIGHT_GOALS, SEXES, LIMITS, bmi, bmiInfo, calorieTarget, waterGoal, stepGoal,
+  logWeight, latestWeight, weightTrend, isValidBody, defaultWeightGoal, daysSince,
+} from './body.js';
+import { recordLift, suggestNext } from './lifts.js';
+import {
   greeting, cheer, LEVEL_ADVICE, ADJUST_TEXT, REMINDER_TEXT,
 } from './copy.js';
 import {
@@ -108,6 +113,29 @@ function mealsFor(key, session) {
   return { slots, meals };
 }
 
+// BMI, calorie, water and step targets from the body data and the latest weight.
+// Recomputed on every render, so any change (new weight, check-in, workout) shows up everywhere.
+function personal(t = computeToday()) {
+  const b = t.p.body;
+  const w = latestWeight(state.weights);
+  if (!b || !w || !isValidBody(b, w.kg)) return null;
+  const body = { ...b, weight: w.kg };
+  const value = bmi(w.kg, b.height);
+  const intensity = t.session && !t.done ? t.session.intensity : (t.done ? t.entry.session?.intensity : 'rest');
+  return {
+    body,
+    latest: w,
+    bmi: value,
+    bmiInfo: bmiInfo(value),
+    cal: calorieTarget(body),
+    water: waterGoal(w.kg, intensity),
+    steps: stepGoal(b.activity, t.day.checkin?.level),
+  };
+}
+
+// Glasses of water for today: personal when body data exists, otherwise the manual setting.
+const waterGoalToday = (t = computeToday()) => personal(t)?.water.glasses ?? state.settings.waterGoal;
+
 function sessionTitle(s) {
   if (!s) return 'วันพัก';
   if (s.intensity === 'rest' || s.activity === 'mobility') return 'ยืดเส้นสบายๆ';
@@ -159,7 +187,7 @@ function addWater(delta) {
   save();
   render();
   if (delta > 0) {
-    const goal = state.settings.waterGoal;
+    const goal = waterGoalToday();
     toast(day.water === goal ? `ครบ ${goal} แก้ว! น้ำบุญเต็มแก้ว 💧` : `แก้วที่ ${day.water} แล้ว ${cheer()}`, () => addWater(-1));
   }
 }
@@ -253,6 +281,7 @@ function finishSet(itemId) {
   const rx = rxFor(day, item, t.session);
   day.sets[itemId] = Math.min(rx.sets, setsDone(day, itemId) + 1);
   autoSaveMachineForm();
+  logLift(currentId(day, itemId), day.sets[itemId], rx.sets, t.session.intensity);
   save();
   const allDone = sessionItems(t.session).every((i) => itemDone(day, i, t.session));
   if (allDone) {
@@ -412,21 +441,76 @@ const sheetTop = (title = '', { close = '‹' } = {}) => `
   </div>`;
 
 // ---------- first-run questions ----------
-const OB_LAST = 5;
+const OB_LAST = 6;
+const BODY_STEP = 2;
+
+function onboardDraft() {
+  const draft = structuredClone(state.profile ?? defaultProfile(state.legacyGymDays));
+  draft.body ??= { height: '', age: '', sex: null, activity: 'light', weightGoal: defaultWeightGoal(draft.goal) };
+  draft.weightKg = latestWeight(state.weights)?.kg ?? '';
+  return draft;
+}
 
 function openOnboard(edit = false) {
-  const base = state.profile ?? defaultProfile(state.legacyGymDays);
-  pushSheet({ type: 'onboard', step: edit ? 1 : 0, edit, draft: structuredClone(base) });
+  pushSheet({ type: 'onboard', step: edit ? 1 : 0, edit, draft: onboardDraft() });
+}
+
+// Just the body questions, from the "ของฉัน" screen.
+function openBodyEdit() {
+  pushSheet({ type: 'onboard', step: BODY_STEP, edit: true, bodyOnly: true, wgTouched: true, draft: onboardDraft() });
+}
+
+// Numbers typed into the body step, or null when something is missing or out of range.
+function draftBody(d) {
+  const body = { ...d.body, height: Number(d.body.height), age: Number(d.body.age) };
+  const kg = Number(d.weightKg);
+  return isValidBody(body, kg) ? { body, kg } : null;
+}
+
+function saveBody(d) {
+  const parsed = draftBody(d);
+  if (!parsed) return false;
+  const latest = latestWeight(state.weights);
+  if (!latest || latest.kg !== parsed.kg) state.weights = logWeight(state.weights, todayKey(), parsed.kg);
+  return parsed.body;
+}
+
+function bodyStep(s, { top, opt }) {
+  const d = s.draft;
+  const num = (field, label, value, [lo, hi], unit) => `<label>${label}
+    <input type="number" inputmode="decimal" data-input="${field}" value="${esc(value)}" min="${lo}" max="${hi}" step="${field === 'weightKg' ? 0.1 : 1}" placeholder="${unit}"></label>`;
+  const head = s.bodyOnly
+    ? `<div class="sheet-top"><button class="icon-btn" data-act="back" aria-label="ปิด">✕</button><span class="head">ข้อมูลร่างกาย</span><span style="width:48px"></span></div>`
+    : top;
+  const foot = s.bodyOnly
+    ? '<button class="btn primary big block" data-act="obSaveBody">บันทึก</button>'
+    : `<button class="btn primary big block" data-act="obBodyNext">ต่อไป</button>
+       <button class="btn ghost block" data-act="obBodySkip">ข้ามส่วนนี้ไปก่อน</button>`;
+  return `${head}
+    <div class="question">ขอรู้จักร่างกายหน่อยนะ</div>
+    <p class="center muted small">แมวจะคำนวณ BMI แคลอรี่ น้ำ และก้าวเดินให้ · ข้อมูลอยู่ในเครื่องนี้เท่านั้น</p>
+    <div class="form-grid two">
+      ${num('weightKg', 'น้ำหนัก (กก.)', d.weightKg, LIMITS.weight, 'เช่น 60')}
+      ${num('height', 'ส่วนสูง (ซม.)', d.body.height, LIMITS.height, 'เช่น 160')}
+      ${num('age', 'อายุ (ปี)', d.body.age, LIMITS.age, 'เช่น 30')}
+      <div><div class="small muted">เพศ</div><div class="chips">${Object.entries(SEXES).map(([k, l]) =>
+        `<button class="chip" data-act="obPick" data-field="body.sex" data-v="${k}" aria-pressed="${d.body.sex === k}">${l}</button>`).join('')}</div></div>
+    </div>
+    <div class="field-label">ในชีวิตประจำวัน ขยับตัวแค่ไหน</div>
+    <div class="opts two">${Object.entries(ACTIVITY_LEVELS).map(([k, a]) => opt('body.activity', k, a.label, a.emoji, a.hint)).join('')}</div>
+    <div class="field-label">อยากให้น้ำหนัก</div>
+    <div class="opts">${Object.entries(WEIGHT_GOALS).map(([k, g]) => opt('body.weightGoal', k, g.label, g.emoji)).join('')}</div>
+    <div class="sheet-foot">${foot}</div>`;
 }
 
 function renderOnboard(s) {
   const d = s.draft;
-  const dots = [1, 2, 3, 4].map((i) => `<i class="${i <= s.step ? 'on' : ''}"></i>`).join('');
+  const dots = [1, 2, 3, 4, 5].map((i) => `<i class="${i <= s.step ? 'on' : ''}"></i>`).join('');
   const top = s.step > 0 && s.step < OB_LAST
     ? `<div class="sheet-top"><button class="icon-btn" data-act="obBack" aria-label="ย้อนกลับ">‹</button><div class="dots">${dots}</div><span style="width:48px"></span></div>`
     : '';
   const cat = (mood, size = 120) => `<div class="sheet-mascot">${mascot(mood, { size })}</div>`;
-  const value = (field) => field.split('.').reduce((o, k) => o[k], d);
+  const value = (field) => field.split('.').reduce((o, k) => o?.[k], d);
   const opt = (field, v, label, emoji, sub = '') => `
     <button class="opt" data-act="obPick" data-field="${field}" data-v="${v}" aria-pressed="${value(field) === v}">
       <span class="emo">${emoji}</span><span>${label}${sub ? `<small>${sub}</small>` : ''}</span></button>`;
@@ -437,7 +521,7 @@ function renderOnboard(s) {
     case 0:
       return `${cat('bright', 170)}
         <div class="question">สวัสดีเหมียว~</div>
-        <p class="center">ฉันชื่อ <b>เหมียวสมาธิ</b> จะช่วยจัดตารางออกกำลังกายกับอาหารให้เอง<br>ขอถามสั้นๆ 4 เรื่อง ไม่ถึง 1 นาที</p>
+        <p class="center">ฉันชื่อ <b>เหมียวสมาธิ</b> จะช่วยจัดตารางออกกำลังกายกับอาหารให้เอง<br>ขอถามสั้นๆ 5 เรื่อง ใช้เวลาราว 1 นาที</p>
         <div class="sheet-foot">
           <button class="btn primary big block" data-act="obNext">เริ่มเลย 🐾</button>
           <button class="btn ghost block" data-act="obSkip">ข้ามไปก่อน ใช้ค่าเริ่มต้น</button>
@@ -447,6 +531,8 @@ function renderOnboard(s) {
         <div class="question">อยากได้อะไรจากการออกกำลังกาย?</div>
         <div class="opts">${Object.entries(GOALS).map(([k, g]) => opt('goal', k, g.label, g.emoji)).join('')}</div>`;
     case 2:
+      return bodyStep(s, { top, opt });
+    case 3:
       return `${top}
         <div class="question">ว่างวันไหน ช่วงไหนบ้าง?</div>
         <div class="field-label">วันที่พอว่าง (เลือกได้หลายวัน)</div>
@@ -454,7 +540,7 @@ function renderOnboard(s) {
         <div class="field-label">ช่วงเวลาที่สะดวก</div>
         <div class="opts two">${Object.entries(SLOTS).map(([k, sl]) => opt('slot', k, sl.label, { morning: '🌅', noon: '☀️', evening: '🌇', night: '🌙' }[k], `${sl.hint} · ${sl.time}`)).join('')}</div>
         <div class="sheet-foot"><button class="btn primary big block" data-act="obNext" ${d.days.length ? '' : 'disabled'}>ต่อไป</button></div>`;
-    case 3:
+    case 4:
       return `${top}${cat('bright', 100)}
         <div class="question">ชอบขยับตัวแบบไหน?</div>
         <p class="center muted">เลือกได้หลายอย่าง</p>
@@ -462,7 +548,7 @@ function renderOnboard(s) {
           <button class="opt" data-act="obToggle" data-field="activities" data-v="${k}" aria-pressed="${d.activities.includes(k)}">
             <span class="emo">${a.emoji}</span><span>${a.label}</span></button>`).join('')}</div>
         <div class="sheet-foot"><button class="btn primary big block" data-act="obNext" ${d.activities.length ? '' : 'disabled'}>ต่อไป</button></div>`;
-    case 4:
+    case 5:
       return `${top}
         <div class="question">เรื่องกินล่ะ?</div>
         <div class="field-label">ส่วนใหญ่ได้อาหารจากไหน</div>
@@ -709,8 +795,28 @@ function renderExercise(sheet) {
       last.seat ? `${machine.seatLabel.split(' (')[0]} <b>${esc(last.seat)}</b>` : '',
       last.weight != null ? `<b>${last.weight}</b> ${unit}` : '',
     ].filter(Boolean).join(' · ') : '';
+    const history = state.lifts[id] ?? [];
+    // Mid-workout the suggestion comes from earlier sessions only, so it doesn't
+    // shift after every set; once this machine is done it looks ahead to next time.
+    const forToday = item && setsDone(t.day, baseId) < rxFor(t.day, item, t.session).sets;
+    const tip = machine.type !== 'strength' ? null : forToday
+      ? suggestNext(history.filter((e) => e.date < t.key), { machineId: id, intensity: t.session.intensity })
+      : suggestNext(history, { machineId: id, intensity: 'hard' });
+    const suggestion = tip ? `<div class="suggest">
+        <div class="small muted">${forToday ? 'แนะนำวันนี้' : 'ครั้งหน้าลองใช้'}</div>
+        <div class="row between"><span class="stat-value">${kgText(tip.weight)} <small>กก.</small>
+          ${tip.delta ? `<span class="badge ${tip.delta > 0 ? 'gold' : ''}">${tip.delta > 0 ? '+' : '−'}${kgText(Math.abs(tip.delta))}</span>` : ''}</span>
+          ${forToday || !item ? `<button type="button" class="btn soft sm" data-act="useSuggest" data-kg="${tip.weight}">ใช้ค่านี้</button>` : ''}</div>
+        <div class="small">${tip.reason}</div>
+      </div>` : '';
+    const recent = [...history].reverse().slice(0, 5);
+    const log = recent.length ? `<details class="lift-log"${item ? '' : ' open'}><summary class="small muted">ประวัติน้ำหนักที่ยก</summary>
+        <ul>${recent.map((e) => `<li><span>${shortDate(e.date)}</span><b>${kgText(e.weight)} กก.</b>
+          <span class="muted small">${e.target ? `${e.sets}/${e.target} เซ็ต${e.completed ? ' ✓' : ''}${e.intensity === 'light' ? ' · วันเบา' : ''}` : 'จดไว้ก่อนหน้า'}</span></li>`).join('')}</ul>
+      </details>` : '';
     mine = `<form class="card form-grid" data-form="machine" data-id="${id}">
       <h2>ค่าที่ฉันตั้ง</h2>
+      ${suggestion}
       ${last ? `<div class="last">ครั้งล่าสุด${last.updatedAt ? ` (${thaiDate(dateKey(new Date(last.updatedAt)), { day: 'numeric', month: 'short' })})` : ''}<br>${lastText}</div>`
     : '<p class="muted small">ยังไม่เคยจด ตั้งเสร็จแล้วบันทึกไว้ ครั้งหน้าไม่ต้องจำเอง</p>'}
       <label>${machine.seatLabel}<input type="text" name="seat" value="${esc(m.seat)}" placeholder="เช่น 4" autocomplete="off"></label>
@@ -722,7 +828,8 @@ function renderExercise(sheet) {
         </div></label>
       <label>โน้ต<textarea name="note" placeholder="เช่น เซ็ตสุดท้ายยังไหว ครั้งหน้าเพิ่มได้">${esc(m.note)}</textarea></label>
       <button class="btn primary block">บันทึกค่า</button>
-      ${item ? '<p class="muted small center">กดจบเซ็ตแล้ว แมวจดค่าให้อัตโนมัติด้วย</p>' : ''}
+      ${item ? '<p class="muted small center">กดจบเซ็ตแล้ว แมวจดน้ำหนักที่ใช้ให้อัตโนมัติด้วย</p>' : ''}
+      ${log}
     </form>`;
   }
 
@@ -763,6 +870,16 @@ function renderExercise(sheet) {
   return `${sheetTop(esc(infoName(info)))}
     ${machine ? `<p class="muted center" style="margin:-6px 0 8px">${machine.name}</p>` : ''}
     ${picture}${rxCard}${mine}${muscles}${how}${alts}`;
+}
+
+// Remember what was lifted today on a strength machine, for next time's suggestion.
+function logLift(id, sets, target, intensity) {
+  const m = machineById(id);
+  const weight = state.machines[id]?.weight;
+  if (!m || m.type !== 'strength' || !(weight > 0)) return;
+  state.lifts[id] = recordLift(state.lifts[id], {
+    date: todayKey(), weight, sets, target, completed: sets >= target, intensity,
+  });
 }
 
 function autoSaveMachineForm() {
@@ -806,7 +923,8 @@ function renderToday() {
     key: t.key, mood, checkedIn: !!t.day.checkin, done, total: items.length,
     isRestDay: !t.session, missed: t.plan.missed, hour: new Date().getHours(),
   });
-  const goal = state.settings.waterGoal;
+  const pers = personal(t);
+  const goal = pers?.water.glasses ?? state.settings.waterGoal;
   const glasses = Array.from({ length: Math.max(goal, t.day.water) }, (_, i) =>
     `<span class="${i < t.day.water ? 'full' : ''}">💧</span>`).join('');
   const hasGym = t.p.activities.includes('gym');
@@ -824,12 +942,33 @@ function renderToday() {
       </div>
     </div>
     <div class="water">
-      <span class="glasses" aria-label="ดื่มน้ำ ${t.day.water} จาก ${goal} แก้ว">${glasses}</span>
+      <span class="grow">
+        <span class="glasses" aria-hidden="true">${glasses}</span>
+        <span class="small muted">💧 ${t.day.water}/${goal} แก้ว${pers?.water.extra ? ` · วันนี้ออกกำลังกาย +${pers.water.extra} มล.` : ''}</span>
+      </span>
       <button class="icon-btn" data-act="water" data-n="-1" aria-label="ลบ 1 แก้ว" ${t.day.water ? '' : 'disabled'}>−</button>
       <button class="btn primary" data-act="water" data-n="1">+1 แก้ว</button>
     </div>
+    ${stepsRow(t, pers)}
     ${hasGym && !t.done ? '<div class="gym-cta"><button class="btn lotus big block" data-act="goGym">🏋️ วันนี้ไปยิม</button></div>' : ''}
     <ol class="timeline">${items.map((it, i) => timelineItem(it, t, meals, i === nowIdx)).join('')}</ol>`;
+}
+
+// Steps are typed in from the phone's own step counter (a web app can't read it).
+function stepsRow(t, pers) {
+  const goal = pers?.steps ?? stepGoal('light', t.day.checkin?.level);
+  const done = t.day.steps;
+  const note = t.day.checkin ? { hard: 'วันนี้สดใส เพิ่มให้นิดนึง', light: '', rest: 'วันนี้ง่วง ลดให้แล้ว' }[t.day.checkin.level] : '';
+  if (done != null && !ui.editSteps) {
+    return `<button class="water steps" data-act="editSteps">
+      <span class="grow">👟 เดินไป <b>${done.toLocaleString('th-TH')}</b> / ${goal.toLocaleString('th-TH')} ก้าว
+        ${done >= goal ? ' · ถึงเป้าแล้ว 🎉' : ''}</span><span class="small muted">แก้</span></button>`;
+  }
+  return `<form class="water steps" data-form="steps">
+    <label class="grow">👟 เป้าวันนี้ <b>${goal.toLocaleString('th-TH')}</b> ก้าว${note ? `<br><span class="small muted">${note}</span>` : ''}
+      <input type="number" name="steps" inputmode="numeric" min="0" max="100000" placeholder="ใส่จำนวนก้าวจากมือถือ" value="${done ?? ''}" aria-label="จำนวนก้าววันนี้"></label>
+    <button class="btn primary sm">บันทึก</button>
+  </form>`;
 }
 
 function timelineItem(it, t, meals, isNow) {
@@ -935,6 +1074,7 @@ function renderFood() {
   const day = getDay(key);
   const canTick = key === t.key;
   const food = t.p.food;
+  const pers = personal(t);
 
   const cards = slots.map((slot) => {
     const m = meals[slot];
@@ -976,6 +1116,7 @@ function renderFood() {
       return `<button data-act="foodDay" data-key="${d.key}" aria-pressed="${d.key === key}">${WEEKDAYS[dt.getDay()]}<b>${dt.getDate()}</b></button>`;
     }).join('')}</div>
     <div class="note gold">${DAY_TYPE_LABEL[mealDayType(session)]} · ${sessionEmoji(session)} ${sessionTitle(session)}</div>
+    ${pers ? `<p class="small muted">🔥 เป้าประมาณ ${pers.cal.kcal.toLocaleString('th-TH')} kcal/วัน ไม่ต้องนับ กินตามแผนนี้ก็ใกล้เคียงแล้ว</p>` : ''}
     ${food.allergies.length ? `<p class="small muted">⚠️ ร้านตามสั่งมักใส่ซอสหอยนางรม น้ำปลา หรือถั่ว บอกร้านทุกครั้งว่าแพ้${food.allergies.map((a) => ALLERGIES[a]).join(', ')}</p>` : ''}
     ${cards}
     <div class="card">
@@ -1013,8 +1154,231 @@ function renderGym() {
     </ul></div>`;
 }
 
+// ---------- "ของฉัน": personal numbers in one place ----------
+const kgText = (n) => `${n.toLocaleString('th-TH', { maximumFractionDigits: 1 })}`;
+const shortDate = (key) => thaiDate(key, { day: 'numeric', month: 'short' });
+
+function renderMe() {
+  const t = computeToday();
+  const pers = personal(t);
+  const p = t.p;
+  const el = $('#view-me');
+  if (!pers) {
+    el.innerHTML = `
+      <div class="view-head"><h1>ของฉัน</h1></div>
+      <div class="card center">
+        <div class="sheet-mascot">${mascot('normal', { size: 110 })}</div>
+        <p>บอกน้ำหนัก ส่วนสูง อายุ และเพศหน่อย<br>แมวจะคำนวณ BMI แคลอรี่ น้ำ และก้าวเดินให้เอง</p>
+        <button class="btn primary big block" data-act="editBody">กรอกข้อมูลร่างกาย</button>
+      </div>
+      <button class="btn soft block" data-act="tab" data-view="settings">⚙️ ตั้งค่าอื่นๆ</button>`;
+    return;
+  }
+
+  const { bmi: b, bmiInfo: info, cal, water, steps, latest, body } = pers;
+  const trend = weightTrend(state.weights, t.key);
+  const since = daysSince(latest.date, t.key);
+  const changeText = trend.change == null ? 'ชั่งอีกสักครั้งจะเห็นแนวโน้ม'
+    : trend.change === 0 ? 'คงที่ในช่วง 30 วัน'
+      : `${trend.change > 0 ? '+' : '−'}${kgText(Math.abs(trend.change))} กก. ใน 30 วัน`;
+  const intensityWord = { hard: 'วันหนัก', light: 'วันเบา', rest: '' };
+
+  el.innerHTML = `
+    <div class="view-head"><h1>ของฉัน</h1></div>
+    <div class="hero">${mascot(t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal', { size: 84 })}
+      <div class="bubble grow small">ตัวเลขทุกอย่างอัปเดตเองเมื่อชั่งน้ำหนัก เช็กอิน หรือออกกำลังกาย 🐾</div></div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">BMI</div>
+        <div class="stat-value">${b.toFixed(1)}</div>
+        <span class="badge ${info.key === 'normal' ? 'gold' : 'lotus'}">${info.label}</span>
+      </div>
+      <div class="stat">
+        <div class="stat-label">แคลอรี่ต่อวัน</div>
+        <div class="stat-value">${cal.kcal.toLocaleString('th-TH')}</div>
+        <span class="small muted">kcal · ${WEIGHT_GOALS[cal.goal].label}</span>
+      </div>
+      <div class="stat">
+        <div class="stat-label">น้ำวันนี้</div>
+        <div class="stat-value">${(water.ml / 1000).toFixed(1)} <small>ลิตร</small></div>
+        <span class="small muted">${water.glasses} แก้ว${water.extra ? ` · +${water.extra} มล. ${intensityWord[t.session?.intensity] ?? ''}` : ''}</span>
+      </div>
+      <div class="stat">
+        <div class="stat-label">น้ำหนักล่าสุด</div>
+        <div class="stat-value">${kgText(latest.kg)} <small>กก.</small></div>
+        <span class="small muted">${since === 0 ? 'วันนี้' : `${since} วันก่อน`} · ${changeText}</span>
+      </div>
+      <div class="stat wide">
+        <div class="stat-label">ก้าวเดินวันนี้</div>
+        <div class="stat-value">${(t.day.steps ?? 0).toLocaleString('th-TH')} <small>/ ${steps.toLocaleString('th-TH')} ก้าว</small></div>
+        <span class="small muted">เป้าปรับตามความพร้อม${t.day.checkin ? ` (${LEVELS[t.day.checkin.level].label})` : ' · เช็กอินแล้วแมวจะปรับให้'}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>BMI ${b.toFixed(1)} · ${info.label}</h2>
+      ${bmiScale(b)}
+      <p>${info.text}</p>
+      <p class="muted small">เกณฑ์สำหรับคนเอเชีย · BMI ดูแค่น้ำหนักกับส่วนสูง ไม่แยกกล้ามเนื้อกับไขมัน ใช้ดูคร่าวๆ พอ</p>
+    </div>
+
+    <div class="card">
+      <h2>แคลอรี่ ${cal.kcal.toLocaleString('th-TH')} kcal/วัน</h2>
+      <p class="small">ร่างกายใช้พลังงานตอนพัก (BMR) ~${cal.bmr.toLocaleString('th-TH')} kcal
+        · รวมการขยับในชีวิตประจำวัน (TDEE) ~${cal.tdee.toLocaleString('th-TH')} kcal</p>
+      <p class="small">${{ lose: 'ลดจาก TDEE ราว 500 kcal ≈ ลดได้ ~0.5 กก./สัปดาห์ แบบไม่หักโหม', keep: 'เท่ากับ TDEE เพื่อรักษาน้ำหนักไว้', gain: 'เพิ่มจาก TDEE ราว 300 kcal ให้กล้ามโตแบบไม่อ้วนเร็ว' }[cal.goal]}</p>
+      ${cal.note ? `<p class="note">${cal.note}</p>` : ''}
+      <p class="muted small">ไม่ต้องนับทุกคำ กินตามแผนอาหารก็ใกล้เคียงแล้ว</p>
+    </div>
+
+    <div class="card">
+      <h2>น้ำหนัก</h2>
+      <form class="stepper" data-form="weight">
+        <button type="button" class="btn soft" data-act="stepKg" data-n="-0.1" aria-label="ลด 0.1 กก.">−</button>
+        <input type="number" name="kg" inputmode="decimal" step="0.1" min="${LIMITS.weight[0]}" max="${LIMITS.weight[1]}" value="${latest.kg}" class="grow" aria-label="น้ำหนักวันนี้ (กก.)">
+        <button type="button" class="btn soft" data-act="stepKg" data-n="0.1" aria-label="เพิ่ม 0.1 กก.">+</button>
+        <button class="btn primary">บันทึก</button>
+      </form>
+      ${since >= 7 ? `<p class="note gold">ไม่ได้ชั่งมา ${since} วัน ชั่งตอนเช้าหลังตื่นนอนจะแม่นที่สุด ไม่ชั่งก็ไม่เป็นไรนะ</p>` : ''}
+      ${weightChart(trend.points)}
+    </div>
+
+    <div class="card">
+      <h2>ข้อมูลร่างกาย</h2>
+      <p>สูง ${body.height} ซม. · อายุ ${body.age} ปี · ${SEXES[body.sex]}</p>
+      <p>${ACTIVITY_LEVELS[body.activity].emoji} ${ACTIVITY_LEVELS[body.activity].label} · ${WEIGHT_GOALS[p.body.weightGoal].emoji} อยาก${WEIGHT_GOALS[p.body.weightGoal].label}</p>
+      <button class="btn soft block" data-act="editBody">✏️ แก้ไข</button>
+    </div>
+    <button class="btn soft block" data-act="tab" data-view="settings">⚙️ ตั้งค่าอื่นๆ</button>
+    <p class="muted small center">ตัวเลขเป็นค่าประมาณจากสูตรมาตรฐาน ไม่ใช่คำแนะนำทางการแพทย์</p>`;
+  bindChart(el.querySelector('.wchart'), trend.points);
+}
+
+// Where the BMI sits on the scale (Asian cut-offs), with a marker instead of colour-coding.
+function bmiScale(value) {
+  const lo = 15;
+  const hi = 35;
+  const pos = (v) => ((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * 100;
+  const cuts = [18.5, 23, 25, 30];
+  return `<div class="bmi-scale" role="img" aria-label="BMI ${value.toFixed(1)} บนสเกล ${lo} ถึง ${hi}">
+    <div class="bmi-track">${cuts.map((c) => `<i style="left:${pos(c)}%"></i>`).join('')}
+      <b style="left:${pos(value)}%"></b></div>
+    <div class="bmi-ticks">${cuts.map((c) => `<span style="left:${pos(c)}%">${c}</span>`).join('')}</div>
+  </div>`;
+}
+
+// ---------- weight chart ----------
+// Two series: each weigh-in (dots) and the 7-day rolling average (line), which
+// shows the real trend through normal day-to-day swings.
+const CH = { w: 340, h: 180, l: 38, r: 12, t: 12, b: 26 };
+
+function chartScales(points) {
+  const vals = points.flatMap((p) => [p.kg, p.avg]);
+  let min = Math.floor((Math.min(...vals) - 0.5) * 2) / 2;
+  let max = Math.ceil((Math.max(...vals) + 0.5) * 2) / 2;
+  if (max - min < 2) {
+    const mid = (max + min) / 2;
+    min = Math.floor(mid - 1);
+    max = Math.ceil(mid + 1);
+  }
+  const t0 = parseKey(points[0].date).getTime();
+  const t1 = parseKey(points[points.length - 1].date).getTime();
+  const span = t1 - t0 || 1;
+  const x = (date) => (points.length === 1 ? (CH.l + CH.w - CH.r) / 2
+    : CH.l + ((parseKey(date).getTime() - t0) / span) * (CH.w - CH.l - CH.r));
+  const y = (v) => CH.t + (1 - (v - min) / (max - min)) * (CH.h - CH.t - CH.b);
+  return { x, y, min, max };
+}
+
+function weightChart(points) {
+  if (!points.length) return '<p class="muted small center">ยังไม่มีบันทึกน้ำหนัก ชั่งครั้งแรกแล้วกดบันทึกได้เลย</p>';
+  const { x, y, min, max } = chartScales(points);
+  const ticks = [min, (min + max) / 2, max];
+  const grid = ticks.map((v) => `<line class="wc-grid" x1="${CH.l}" x2="${CH.w - CH.r}" y1="${y(v)}" y2="${y(v)}"/>
+    <text class="wc-axis" x="${CH.l - 6}" y="${y(v) + 4}" text-anchor="end">${kgText(v)}</text>`).join('');
+  const line = points.length > 1
+    ? `<polyline class="wc-trend" points="${points.map((p) => `${x(p.date).toFixed(1)},${y(p.avg).toFixed(1)}`).join(' ')}"/>` : '';
+  const dots = points.map((p) => `<circle class="wc-point" cx="${x(p.date).toFixed(1)}" cy="${y(p.kg).toFixed(1)}" r="4"/>`).join('');
+  const first = points[0];
+  const last = points[points.length - 1];
+  const xLabels = `<text class="wc-axis" x="${x(first.date)}" y="${CH.h - 6}" text-anchor="${points.length > 1 ? 'start' : 'middle'}">${shortDate(first.date)}</text>
+    ${points.length > 1 ? `<text class="wc-axis" x="${x(last.date)}" y="${CH.h - 6}" text-anchor="end">${shortDate(last.date)}</text>` : ''}`;
+  const rows = [...points].reverse().slice(0, 14).map((p) =>
+    `<tr><td>${shortDate(p.date)}</td><td>${kgText(p.kg)}</td><td>${kgText(p.avg)}</td></tr>`).join('');
+  return `<div class="legend wc-legend">
+      <span><i class="dot" style="background:var(--chart-point)"></i>ที่ชั่งแต่ละวัน</span>
+      <span><i class="dash" style="background:var(--chart-trend)"></i>แนวโน้ม (เฉลี่ย 7 วัน)</span>
+    </div>
+    <div class="wchart" tabindex="0" role="img" aria-label="กราฟน้ำหนัก ${points.length} ครั้ง ล่าสุด ${kgText(last.kg)} กก. แนวโน้ม ${kgText(last.avg)} กก. ใช้ปุ่มลูกศรเลื่อนดูทีละวัน">
+      <svg viewBox="0 0 ${CH.w} ${CH.h}" aria-hidden="true">
+        ${grid}${xLabels}${line}
+        <line class="wc-cross" x1="0" x2="0" y1="${CH.t}" y2="${CH.h - CH.b}" hidden/>
+        ${dots}
+        <circle class="wc-focus" r="6" hidden/>
+      </svg>
+      <div class="wc-tip" hidden></div>
+    </div>
+    <details class="wc-table"><summary class="small muted">ดูเป็นตาราง</summary>
+      <table><thead><tr><th>วันที่</th><th>ชั่งได้ (กก.)</th><th>แนวโน้ม (กก.)</th></tr></thead><tbody>${rows}</tbody></table>
+    </details>`;
+}
+
+// Crosshair + tooltip that snaps to the nearest weigh-in (pointer or arrow keys).
+function bindChart(box, points) {
+  if (!box || !points.length) return;
+  const svg = box.querySelector('svg');
+  const cross = svg.querySelector('.wc-cross');
+  const focus = svg.querySelector('.wc-focus');
+  const tip = box.querySelector('.wc-tip');
+  const { x, y } = chartScales(points);
+  let idx = points.length - 1;
+  const show = (i) => {
+    idx = i;
+    const p = points[i];
+    const px = x(p.date);
+    cross.setAttribute('x1', px);
+    cross.setAttribute('x2', px);
+    focus.setAttribute('cx', px);
+    focus.setAttribute('cy', y(p.kg));
+    cross.hidden = false;
+    focus.hidden = false;
+    tip.hidden = false;
+    tip.textContent = '';
+    const d = document.createElement('b');
+    d.textContent = thaiDate(p.date, { day: 'numeric', month: 'short', year: '2-digit' });
+    tip.append(d, document.createElement('br'), `ชั่งได้ ${kgText(p.kg)} กก.`, document.createElement('br'), `แนวโน้ม ${kgText(p.avg)} กก.`);
+    const left = (px / CH.w) * box.clientWidth;
+    tip.style.left = `${Math.min(box.clientWidth - tip.offsetWidth, Math.max(0, left - tip.offsetWidth / 2))}px`;
+  };
+  const hide = () => {
+    cross.hidden = true;
+    focus.hidden = true;
+    tip.hidden = true;
+  };
+  box.addEventListener('pointermove', (e) => {
+    const r = svg.getBoundingClientRect();
+    const vx = ((e.clientX - r.left) / r.width) * CH.w;
+    let best = 0;
+    points.forEach((p, i) => {
+      if (Math.abs(x(p.date) - vx) < Math.abs(x(points[best].date) - vx)) best = i;
+    });
+    show(best);
+  });
+  box.addEventListener('pointerleave', hide);
+  box.addEventListener('focus', () => show(idx));
+  box.addEventListener('blur', hide);
+  box.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') show(Math.max(0, idx - 1));
+    else if (e.key === 'ArrowRight') show(Math.min(points.length - 1, idx + 1));
+    else return;
+    e.preventDefault();
+  });
+}
+
 function renderSettings() {
   const p = profile();
+  const pers = personal();
   const s = state.settings;
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
   const permText = {
@@ -1026,7 +1390,8 @@ function renderSettings() {
   const reminders = [...s.reminders].sort((a, b) => a.time.localeCompare(b.time));
 
   $('#view-settings').innerHTML = `
-    <div class="view-head"><h1>ตั้งค่า</h1></div>
+    <div class="view-head"><button class="btn ghost sm" data-act="tab" data-view="me">‹ ของฉัน</button></div>
+    <h1>ตั้งค่า</h1>
     <div class="card">
       <h2>ข้อมูลของฉัน</h2>
       <p>${GOALS[p.goal].emoji} ${GOALS[p.goal].label}</p>
@@ -1040,11 +1405,13 @@ function renderSettings() {
 
     <div class="card">
       <h2>เป้าดื่มน้ำต่อวัน</h2>
-      <div class="stepper">
+      ${pers ? `<p>คำนวณจากน้ำหนักให้อัตโนมัติ: <b>${pers.water.glasses} แก้ว</b> (${(pers.water.ml / 1000).toFixed(1)} ลิตร) และเพิ่มให้ในวันออกกำลังกาย</p>`
+    : `<div class="stepper">
         <button class="btn soft" data-act="goal" data-n="-1" aria-label="ลดเป้า">−</button>
         <b class="head grow center">${s.waterGoal} แก้ว</b>
         <button class="btn soft" data-act="goal" data-n="1" aria-label="เพิ่มเป้า">+</button>
       </div>
+      <p class="muted small">กรอกข้อมูลร่างกายในหน้า "ของฉัน" แล้วแมวจะคำนวณให้เอง</p>`}
     </div>
 
     <div class="card">
@@ -1097,7 +1464,7 @@ function currentDue(now = Date.now()) {
     key: t.key,
     now,
     log: state.reminderLog[t.key] ?? {},
-    waterGoal: state.settings.waterGoal,
+    waterGoal: waterGoalToday(t),
     workoutPending: !!t.session && !t.done,
   });
 }
@@ -1202,7 +1569,7 @@ function handleReminderAction({ id, type, action }) {
 function showView(view) {
   ui.view = view;
   document.querySelectorAll('.tabs [data-view]').forEach((t) =>
-    t.setAttribute('aria-selected', String(t.dataset.view === view)));
+    t.setAttribute('aria-selected', String(t.dataset.view === (view === 'settings' ? 'me' : view))));
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${view}`));
   render();
   window.scrollTo(0, 0);
@@ -1219,6 +1586,7 @@ function render() {
   renderWeek();
   renderFood();
   renderGym();
+  renderMe();
   renderSettings();
   renderAlerts();
 }
@@ -1229,6 +1597,7 @@ const actions = {
   back: () => popSheet(),
   openOnboard: () => openOnboard(),
   editProfile: () => openOnboard(true),
+  editBody: () => openBodyEdit(),
 
   // first-run questions
   obNext: () => {
@@ -1237,7 +1606,7 @@ const actions = {
   },
   obBack: () => {
     const s = topSheet();
-    if (s.step <= (s.edit ? 1 : 0)) popSheet();
+    if (s.bodyOnly || s.step <= (s.edit ? 1 : 0)) popSheet();
     else replaceSheet({ ...s, step: s.step - 1 });
   },
   obSkip: () => {
@@ -1250,6 +1619,9 @@ const actions = {
     const [a, b] = d.field.split('.');
     if (b) s.draft[a][b] = d.v;
     else s.draft[a] = d.v;
+    // The exercise goal suggests a weight goal until the user picks one themselves.
+    if (d.field === 'goal' && !s.wgTouched) s.draft.body.weightGoal = defaultWeightGoal(d.v);
+    if (d.field === 'body.weightGoal') s.wgTouched = true;
     renderSheet();
     if (d.field === 'goal') setTimeout(() => actions.obNext(), 200); // single question: move on by itself
   },
@@ -1263,9 +1635,36 @@ const actions = {
     else s.draft[a] = next;
     renderSheet();
   },
+  obBodyNext: () => {
+    const s = topSheet();
+    if (!draftBody(s.draft)) {
+      toast('กรอกน้ำหนัก ส่วนสูง อายุ และเพศให้ครบก่อนนะ (หรือกดข้ามไปก่อน)');
+      return;
+    }
+    actions.obNext();
+  },
+  obBodySkip: () => {
+    const s = topSheet();
+    s.draft.skipBody = true;
+    actions.obNext();
+  },
+  obSaveBody: () => {
+    const s = topSheet();
+    const body = saveBody(s.draft);
+    if (!body) {
+      toast('กรอกน้ำหนัก ส่วนสูง อายุ และเพศให้ครบก่อนนะ');
+      return;
+    }
+    state.profile.body = body;
+    save();
+    popSheet();
+    toast('คำนวณใหม่ให้แล้ว 🐾');
+  },
   obFinish: () => {
     const s = topSheet();
-    state.profile = s.draft;
+    const { weightKg, skipBody, ...profileDraft } = s.draft;
+    const body = skipBody ? null : saveBody(s.draft);
+    state.profile = { ...profileDraft, body: body || null };
     delete state.legacyGymDays;
     save();
     render();
@@ -1326,6 +1725,15 @@ const actions = {
     else completeWorkout(t.session);
   },
   goGym: () => startSession({ gym: true }),
+  editSteps: () => {
+    ui.editSteps = true;
+    renderToday();
+    $('#view-today input[name="steps"]')?.focus();
+  },
+  stepKg: (d, el) => {
+    const input = el.closest('form').kg;
+    input.value = Math.max(0, Math.round(((Number(input.value) || 0) + Number(d.n)) * 10) / 10);
+  },
   startSession: () => startSession(),
   startFromAlert: () => startSession({ gym: computeToday().session?.activity === 'gym' }),
   snooze: (d) => snooze(d.id, Number(d.min)),
@@ -1371,6 +1779,10 @@ const actions = {
     delete editDay(todayKey()).altSwaps[d.id];
     save();
     renderSheet();
+  },
+  useSuggest: (d, el) => {
+    el.closest('form').weight.value = d.kg;
+    toast(`ตั้งเป็น ${d.kg} กก. แล้ว`);
   },
   stepWeight: (d, el) => {
     const input = el.closest('form').weight;
@@ -1528,6 +1940,34 @@ const changes = {
 
 const forms = {
   machine: (form) => saveMachine(form),
+  steps: (form) => {
+    const n = Number(form.steps.value);
+    if (form.steps.value === '' || !Number.isFinite(n) || n < 0 || n > 100000) {
+      toast('ใส่จำนวนก้าวเป็นตัวเลขนะ');
+      return;
+    }
+    editDay(todayKey()).steps = Math.round(n);
+    ui.editSteps = false;
+    save();
+    render();
+    toast(`จดแล้ว ${Math.round(n).toLocaleString('th-TH')} ก้าว ${cheer()}`);
+  },
+  weight: (form) => {
+    const kg = Number(form.kg.value);
+    if (!(kg >= LIMITS.weight[0] && kg <= LIMITS.weight[1])) {
+      toast(`ใส่น้ำหนักระหว่าง ${LIMITS.weight[0]}–${LIMITS.weight[1]} กก.`);
+      return;
+    }
+    const prev = state.weights;
+    state.weights = logWeight(state.weights, todayKey(), kg);
+    save();
+    render();
+    toast(`จดน้ำหนักแล้ว ${kg} กก. 📝`, () => {
+      state.weights = prev;
+      save();
+      render();
+    });
+  },
   prepAdd: (form) => {
     const text = form.text.value.trim();
     if (!text) return;
@@ -1554,6 +1994,15 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     e.target.click();
   }
+});
+// Typed values in the first-run form go straight into the draft, so tapping a
+// chip (which re-renders the sheet) never loses what was typed.
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('[data-input]');
+  const s = topSheet();
+  if (!el || s?.type !== 'onboard') return;
+  if (el.dataset.input === 'weightKg') s.draft.weightKg = el.value;
+  else s.draft.body[el.dataset.input] = el.value;
 });
 document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-change]');

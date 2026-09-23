@@ -17,6 +17,7 @@ export function defaultProfile(gymDays) {
     slot: 'evening',
     activities: ['gym', 'walk'],
     food: { mode: 'mix', allergies: [], avoid: [], budget: 'mid' },
+    body: null, // { height, age, sex, activity, weightGoal } — weight lives in state.weights
   };
 }
 
@@ -35,7 +36,9 @@ export function defaultState() {
       ],
     },
     checklist: GYM_BAG.map((text, i) => ({ id: `c${i + 1}`, text })),
-    machines: {}, // id -> { seat, weight, note, updatedAt }
+    machines: {}, // id -> { seat, weight, note, updatedAt } (the latest settings)
+    lifts: {}, // machine id -> [{ date, weight, sets, target, completed, intensity }]
+    weights: [], // body weight log: [{ date, kg }]
     shopping: {}, // week start key -> [ticked item names]
     reminderLog: {},
   };
@@ -60,6 +63,15 @@ export function normalize(raw) {
   for (const [key, day] of Object.entries(raw.days ?? {})) {
     state.days[key] = { ...emptyDay(), ...day };
   }
+  if (!Array.isArray(state.weights)) state.weights = [];
+  if (!state.lifts || typeof state.lifts !== 'object') state.lifts = {};
+  // Machine weights saved before the lift log existed become its first entry.
+  for (const [id, m] of Object.entries(state.machines)) {
+    if (!state.lifts[id]?.length && Number.isFinite(m.weight) && m.weight > 0) {
+      const date = m.updatedAt ? dateKey(new Date(m.updatedAt)) : dateKey();
+      state.lifts[id] = [{ date, weight: m.weight, sets: null, target: null, completed: null, intensity: 'hard' }];
+    }
+  }
   return state;
 }
 
@@ -83,7 +95,7 @@ export function migrateV2(v2) {
   if (Array.isArray(v2?.checklist) && v2.checklist.length) state.checklist = v2.checklist;
   // Remembered so the first-run questions can start from the old gym days.
   state.legacyGymDays = v2?.settings?.gymDays ?? null;
-  return state;
+  return normalize(state);
 }
 
 export function migrateV1(v1) {

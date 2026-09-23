@@ -62,6 +62,7 @@ export function emptyDay() {
     sets: {}, // exercise id -> sets finished
     altSwaps: {}, // machine id -> alternative exercise id
     prep: [], // gym-bag checklist ids ticked today
+    steps: null, // steps walked, typed in from the phone's step counter
   };
 }
 
