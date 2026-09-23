@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f9d76">
+  <meta name="description" content="บันทึกน้ำ ก้าวเดิน การนอน น้ำหนัก และอารมณ์ประจำวัน">
+  <title>สุขภาพดี</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>สุขภาพดี</h1>
+      <p id="today-label" class="muted"></p>
+    </div>
+    <span id="streak" class="streak" title="จำนวนวันติดต่อกันที่ดื่มน้ำครบเป้า"></span>
+  </header>
+
+  <main>
+    <!-- Today -->
+    <section id="view-today" class="view active" aria-labelledby="tab-today">
+      <article class="card">
+        <div class="card-head">
+          <h2>💧 ดื่มน้ำ</h2>
+          <span class="value"><b id="water-value">0</b> / <span id="water-goal"></span> แก้ว</span>
+        </div>
+        <div class="bar"><div id="water-bar"></div></div>
+        <div class="row">
+          <button class="btn ghost" data-water="-1" aria-label="ลดน้ำ 1 แก้ว">−</button>
+          <button class="btn primary grow" data-water="1">+ 1 แก้ว (250 มล.)</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>👟 ก้าวเดิน</h2>
+          <span class="value"><b id="steps-value">0</b> / <span id="steps-goal"></span> ก้าว</span>
+        </div>
+        <div class="bar"><div id="steps-bar"></div></div>
+        <form class="row" data-field="steps">
+          <input type="number" inputmode="numeric" min="0" max="100000" placeholder="จำนวนก้าววันนี้" aria-label="จำนวนก้าว">
+          <button class="btn primary">บันทึก</button>
+        </form>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>😴 การนอน</h2>
+          <span class="value"><b id="sleep-value">0</b> / <span id="sleep-goal"></span> ชม.</span>
+        </div>
+        <div class="bar"><div id="sleep-bar"></div></div>
+        <form class="row" data-field="sleep">
+          <input type="number" inputmode="decimal" min="0" max="24" step="0.5" placeholder="ชั่วโมงที่นอนเมื่อคืน" aria-label="ชั่วโมงการนอน">
+          <button class="btn primary">บันทึก</button>
+        </form>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>⚖️ น้ำหนัก</h2>
+          <span class="value"><b id="weight-value">–</b> กก.</span>
+        </div>
+        <form class="row" data-field="weight">
+          <input type="number" inputmode="decimal" min="20" max="300" step="0.1" placeholder="น้ำหนักวันนี้ (กก.)" aria-label="น้ำหนัก">
+          <button class="btn primary">บันทึก</button>
+        </form>
+      </article>
+
+      <article class="card">
+        <h2>🙂 อารมณ์วันนี้</h2>
+        <div class="moods" role="radiogroup" aria-label="อารมณ์วันนี้">
+          <button data-mood="1" role="radio" aria-label="แย่มาก">😫</button>
+          <button data-mood="2" role="radio" aria-label="ไม่ค่อยดี">😕</button>
+          <button data-mood="3" role="radio" aria-label="เฉยๆ">😐</button>
+          <button data-mood="4" role="radio" aria-label="ดี">🙂</button>
+          <button data-mood="5" role="radio" aria-label="ดีมาก">😄</button>
+        </div>
+      </article>
+    </section>
+
+    <!-- History -->
+    <section id="view-history" class="view" aria-labelledby="tab-history">
+      <article class="card">
+        <h2>7 วันที่ผ่านมา</h2>
+        <div class="chart-legend">
+          <label>แสดง
+            <select id="chart-metric">
+              <option value="water">น้ำ (แก้ว)</option>
+              <option value="steps">ก้าวเดิน</option>
+              <option value="sleep">การนอน (ชม.)</option>
+              <option value="weight">น้ำหนัก (กก.)</option>
+            </select>
+          </label>
+        </div>
+        <svg id="chart" viewBox="0 0 320 180" role="img" aria-label="กราฟย้อนหลัง 7 วัน"></svg>
+      </article>
+      <article class="card">
+        <h2>บันทึกรายวัน</h2>
+        <div class="table-wrap">
+          <table id="history-table">
+            <thead><tr><th>วันที่</th><th>น้ำ</th><th>ก้าว</th><th>นอน</th><th>น้ำหนัก</th><th>อารมณ์</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <!-- Profile -->
+    <section id="view-profile" class="view" aria-labelledby="tab-profile">
+      <article class="card">
+        <h2>ข้อมูลส่วนตัว</h2>
+        <form id="profile-form" class="grid">
+          <label>ส่วนสูง (ซม.)<input name="height" type="number" inputmode="decimal" min="50" max="250"></label>
+          <label>อายุ (ปี)<input name="age" type="number" inputmode="numeric" min="1" max="120"></label>
+          <label>เพศ
+            <select name="sex">
+              <option value="female">หญิง</option>
+              <option value="male">ชาย</option>
+            </select>
+          </label>
+          <button class="btn primary">บันทึกข้อมูล</button>
+        </form>
+      </article>
+      <article class="card">
+        <h2>ดัชนีมวลกาย (BMI)</h2>
+        <p class="big"><span id="bmi-value">–</span> <span id="bmi-label" class="pill"></span></p>
+        <p class="muted" id="bmi-hint">กรอกส่วนสูงและบันทึกน้ำหนักเพื่อคำนวณ BMI</p>
+        <p class="muted">พลังงานพื้นฐาน (BMR): <b id="bmr-value">–</b> kcal/วัน</p>
+      </article>
+      <article class="card">
+        <h2>ข้อมูล</h2>
+        <p class="muted">ข้อมูลทั้งหมดเก็บไว้ในเครื่องของคุณเท่านั้น</p>
+        <div class="row">
+          <button id="export-btn" class="btn ghost grow">ส่งออก (JSON)</button>
+          <button id="reset-btn" class="btn danger grow">ล้างข้อมูล</button>
+        </div>
+      </article>
+      <p class="muted small">แอพนี้ใช้ติดตามพฤติกรรมสุขภาพเบื้องต้น ไม่สามารถใช้แทนคำแนะนำของแพทย์ได้</p>
+    </section>
+  </main>
+
+  <nav class="tabs" role="tablist">
+    <button id="tab-today" role="tab" data-view="today" aria-selected="true">🏠<span>วันนี้</span></button>
+    <button id="tab-history" role="tab" data-view="history" aria-selected="false">📊<span>ประวัติ</span></button>
+    <button id="tab-profile" role="tab" data-view="profile" aria-selected="false">👤<span>โปรไฟล์</span></button>
+  </nav>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
