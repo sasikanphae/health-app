@@ -63,6 +63,12 @@ export function emptyDay() {
     altSwaps: {}, // machine id -> alternative exercise id
     prep: [], // gym-bag checklist ids ticked today
     steps: null, // steps walked, typed in from the phone's step counter
+    mood: null, // 1..5, one tap on the Today screen
+    easy: false, // "วันนี้ไม่ไหว": every target softened for this day only
+    holyKeep: false, // on วันพระ, the user chose to keep the planned hard session
+    waterMet: false, // water goal reached (the goal of that day, remembered)
+    stepsMet: false, // step goal reached
+    celebrated: false, // everything on the timeline done (bell already rung)
   };
 }
 

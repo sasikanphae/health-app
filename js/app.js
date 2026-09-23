@@ -1,5 +1,5 @@
 import {
-  dateKey, parseKey, emptyDay, readiness, dueReminders, SLEEP_HOURS, LEVELS,
+  dateKey, parseKey, addDays, emptyDay, readiness, dueReminders, SLEEP_HOURS, LEVELS,
 } from './health.js';
 import {
   GOALS, SLOTS, ACTIVITIES, FOCUS, INTENSITY, planWeek, gymSessionToday, sessionItems,
@@ -18,6 +18,11 @@ import {
   logWeight, latestWeight, weightTrend, isValidBody, defaultWeightGoal, daysSince,
 } from './body.js';
 import { recordLift, suggestNext } from './lifts.js';
+import {
+  findPatterns, findHabit, weeklyStory, rewardProgress, REWARD_METRICS,
+} from './insights.js';
+import { holyDays } from './lunar.js';
+import { bell, woodblock, blessing } from './sound.js';
 import {
   greeting, cheer, LEVEL_ADVICE, ADJUST_TEXT, REMINDER_TEXT,
 } from './copy.js';
@@ -96,9 +101,30 @@ function computeToday() {
   const entry = plan.week.find((d) => d.isToday);
   const day = getDay(key);
   // Once a workout is started, keep that exact session for the rest of the day.
-  const session = entry.done ? entry.session : (day.active ?? entry.session);
-  return { key, p, plan, entry, day, session, done: entry.done };
+  let session = entry.done ? entry.session : (day.active ?? entry.session);
+  const holy = state.settings.holyDays ? holyDays(key, key)[key] ?? null : null;
+  if (session && !entry.done) {
+    if (day.easy) session = gentle(session, 'easy', key);
+    else if (holy && !day.active && !day.holyKeep && session.intensity === 'hard') session = gentle(session, 'holy', key);
+  }
+  return { key, p, plan, entry, day, session, done: entry.done, holy };
 }
+
+// A soft stand-in for today's session ("not today" mode, or a calm วันพระ).
+// It gets its own id, so finishing it doesn't use up the planned session:
+// the planner simply moves that one to a later day.
+function gentle(session, reason, key) {
+  return {
+    ...session, id: `${reason}-${key}`, kind: 'cardio', focus: null, intensity: 'rest', activity: 'mobility', adjusted: reason,
+  };
+}
+
+// Sounds are optional (Settings) and only ever follow a tap.
+const sfx = {
+  knock: () => state.settings.sound && woodblock(),
+  bell: () => state.settings.sound && bell(),
+  bless: () => state.settings.sound && blessing(),
+};
 
 function mealsFor(key, session) {
   const p = profile();
@@ -122,22 +148,43 @@ function personal(t = computeToday()) {
   const body = { ...b, weight: w.kg };
   const value = bmi(w.kg, b.height);
   const intensity = t.session && !t.done ? t.session.intensity : (t.done ? t.entry.session?.intensity : 'rest');
+  let water = waterGoal(w.kg, intensity);
+  let steps = stepGoal(b.activity, t.day.checkin?.level);
+  if (t.day.easy) {
+    const glasses = Math.max(6, Math.round(water.glasses * 0.75));
+    water = { ml: glasses * 250, extra: 0, glasses, easy: true };
+    steps = softSteps(steps);
+  }
   return {
     body,
     latest: w,
     bmi: value,
     bmiInfo: bmiInfo(value),
     cal: calorieTarget(body),
-    water: waterGoal(w.kg, intensity),
-    steps: stepGoal(b.activity, t.day.checkin?.level),
+    water,
+    steps,
   };
 }
 
+const softSteps = (steps) => Math.max(2000, Math.round((steps * 0.5) / 500) * 500);
+
 // Glasses of water for today: personal when body data exists, otherwise the manual setting.
-const waterGoalToday = (t = computeToday()) => personal(t)?.water.glasses ?? state.settings.waterGoal;
+function waterGoalToday(t = computeToday()) {
+  const pers = personal(t);
+  if (pers) return pers.water.glasses;
+  const goal = state.settings.waterGoal;
+  return t.day.easy ? Math.max(4, Math.round(goal * 0.75)) : goal;
+}
+
+function stepGoalToday(t = computeToday(), pers = personal(t)) {
+  if (pers) return pers.steps;
+  const goal = stepGoal('light', t.day.checkin?.level);
+  return t.day.easy ? softSteps(goal) : goal;
+}
 
 function sessionTitle(s) {
   if (!s) return 'วันพัก';
+  if (s.adjusted === 'holy') return ROUTINES.meditate.name;
   if (s.intensity === 'rest' || s.activity === 'mobility') return 'ยืดเส้นสบายๆ';
   if (s.kind === 'strength') return `${s.activity === 'gym' ? 'ยิม' : 'เวทที่บ้าน'} · ${FOCUS[s.focus].label}`;
   if (s.activity === 'gym') return 'ลู่วิ่ง · คาร์ดิโอ';
@@ -146,6 +193,7 @@ function sessionTitle(s) {
 
 function sessionEmoji(s) {
   if (!s) return '🌙';
+  if (s.adjusted === 'holy') return '🪷';
   if (s.intensity === 'rest' || s.activity === 'mobility') return '🧘';
   return { gym: '🏋️', home: '🏠', run: '🏃', walk: '🚶' }[s.activity] ?? '✨';
 }
@@ -176,6 +224,7 @@ const itemDone = (day, item, session) => setsDone(day, item.id) >= rxFor(day, it
 
 // ---------- actions: logging ----------
 function addWater(delta) {
+  const goal = waterGoalToday();
   const day = editDay(todayKey());
   if (delta > 0) {
     day.water += 1;
@@ -184,10 +233,12 @@ function addWater(delta) {
     day.water -= 1;
     day.waterAt.pop();
   } else return;
+  day.waterMet = day.water >= goal;
   save();
   render();
   if (delta > 0) {
-    const goal = waterGoalToday();
+    if (day.water === goal) sfx.bell();
+    else sfx.knock();
     toast(day.water === goal ? `ครบ ${goal} แก้ว! น้ำบุญเต็มแก้ว 💧` : `แก้วที่ ${day.water} แล้ว ${cheer()}`, () => addWater(-1));
   }
 }
@@ -201,6 +252,7 @@ function setMeal(slot, status) {
   day.meals[slot] = { status, menuId: meals[slot]?.id ?? null };
   save();
   render();
+  sfx.knock();
   toast(status === 'plan' ? `กินตามแผนแล้ว ${cheer()}` : 'กินอย่างอื่นก็โอเค แมวไม่ว่าเลย 👌', () => {
     if (prev) editDay(key).meals[slot] = prev;
     else delete editDay(key).meals[slot];
@@ -233,6 +285,7 @@ function completeWorkout(session) {
   };
   save();
   render();
+  sfx.bell();
   toast('ออกกำลังกายเสร็จแล้ว! บุญพุ่ง 🎉', () => {
     editDay(key).workout = null;
     save();
@@ -257,6 +310,8 @@ function undoWorkout() {
 function startSession({ gym = false } = {}) {
   const t = computeToday();
   const day = editDay(t.key);
+  // Going to the gym anyway on a "not today" day is the user's call.
+  if (gym && day.easy) day.easy = false;
   if (!t.done) {
     if (!day.active) {
       const s = gym ? gymSessionToday({ plan: t.plan, today: t.key, days: state.days, profile: t.p }) : t.session;
@@ -288,6 +343,7 @@ function finishSet(itemId) {
     stopTimer();
     completeWorkout(t.session);
   } else if (day.sets[itemId] < rx.sets) {
+    sfx.knock();
     startTimer(rx.rest, `พักก่อนเซ็ตที่ ${day.sets[itemId] + 1}`);
     toast(`จบเซ็ตที่ ${day.sets[itemId]} ${cheer()}`);
   } else {
@@ -590,6 +646,7 @@ function finishCheckin(s) {
   const result = readiness(s.answers);
   editDay(todayKey()).checkin = { answers: s.answers, ...result, at: Date.now() };
   save();
+  sfx.bell();
   replaceSheet({ ...s, step: CHECKIN_STEPS.length });
   render();
 }
@@ -918,13 +975,22 @@ function renderToday() {
   const items = timeline.map((it) => ({ ...it, done: isDone(it) }));
   const done = items.filter((i) => i.done).length;
   const nowIdx = items.findIndex((i) => !i.done);
-  const mood = t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal';
+  const mood = t.day.easy ? 'sleepy' : t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal';
+  const hour = new Date().getHours();
+  const habit = findHabit({ days: state.days, profile: t.p, today: t.key, hour });
   const msg = greeting({
     key: t.key, mood, checkedIn: !!t.day.checkin, done, total: items.length,
-    isRestDay: !t.session, missed: t.plan.missed, hour: new Date().getHours(),
+    isRestDay: !t.session, missed: t.plan.missed, hour, easy: t.day.easy, habit, holy: t.holy,
   });
   const pers = personal(t);
-  const goal = pers?.water.glasses ?? state.settings.waterGoal;
+  const goal = waterGoalToday(t);
+
+  // Everything done: ring the blessing once (only after a tap, never on page load).
+  if (items.length && done === items.length && !t.day.celebrated && ui.userActed) {
+    editDay(t.key).celebrated = true;
+    save();
+    sfx.bless();
+  }
   const glasses = Array.from({ length: Math.max(goal, t.day.water) }, (_, i) =>
     `<span class="${i < t.day.water ? 'full' : ''}">💧</span>`).join('');
   const hasGym = t.p.activities.includes('gym');
@@ -950,13 +1016,102 @@ function renderToday() {
       <button class="btn primary" data-act="water" data-n="1">+1 แก้ว</button>
     </div>
     ${stepsRow(t, pers)}
-    ${hasGym && !t.done ? '<div class="gym-cta"><button class="btn lotus big block" data-act="goGym">🏋️ วันนี้ไปยิม</button></div>' : ''}
+    ${moodRow(t)}
+    ${easyCard(t, pers, goal)}
+    ${holyCard(t)}
+    ${todayCards(t)}
+    ${hasGym && !t.done && !t.day.easy ? '<div class="gym-cta"><button class="btn lotus big block" data-act="goGym">🏋️ วันนี้ไปยิม</button></div>' : ''}
     <ol class="timeline">${items.map((it, i) => timelineItem(it, t, meals, i === nowIdx)).join('')}</ol>`;
+}
+
+const MOODS = [
+  { v: 1, e: '😫', l: 'แย่มาก' }, { v: 2, e: '😕', l: 'ไม่ค่อยดี' }, { v: 3, e: '😐', l: 'เฉยๆ' },
+  { v: 4, e: '🙂', l: 'ดี' }, { v: 5, e: '😄', l: 'ดีมาก' },
+];
+
+// One tap; feeds the patterns ("days you exercise, your mood is better").
+function moodRow(t) {
+  return `<div class="water mood-row" role="group" aria-label="วันนี้รู้สึกอย่างไร">
+    <span class="small muted">ใจวันนี้</span>
+    <div class="moods">${MOODS.map((m) => `<button data-act="mood" data-v="${m.v}" aria-label="${m.l}" aria-pressed="${t.day.mood === m.v}">${m.e}</button>`).join('')}</div>
+  </div>`;
+}
+
+// "วันนี้ไม่ไหว": one button that softens every target for today only.
+function easyCard(t, pers, waterGoalNow) {
+  if (!t.day.easy) {
+    return '<button class="btn soft block easy-btn" data-act="easyOn">🫶 วันนี้ไม่ไหว</button>';
+  }
+  return `<div class="card easy-card">
+    <div class="head">🫶 โหมดวันนี้ไม่ไหว</div>
+    <p class="small">ลดเป้าให้หมดแล้ว: น้ำ ${waterGoalNow} แก้ว · เดิน ${stepGoalToday(t, pers).toLocaleString('th-TH')} ก้าว ·
+      ${t.session && !t.done ? 'ออกกำลังกาย → ยืดเส้นเบาๆ (ไม่ทำก็ได้)' : 'ไม่ต้องออกกำลังกาย'} · อาหารเบาๆ</p>
+    <p class="small muted">โปรแกรมที่พลาดวันนี้ แมวย้ายไปวันอื่นให้เอง · พรุ่งนี้กลับเป็นปกติเอง</p>
+    <button class="btn ghost sm" data-act="easyOff">กลับเป็นวันปกติ</button>
+  </div>`;
+}
+
+function holyCard(t) {
+  if (!t.holy) return '';
+  const swapped = t.session?.adjusted === 'holy';
+  return `<div class="card holy-card">
+    <div class="row"><span class="holy-mark" aria-hidden="true">🪷</span>
+      <div class="grow"><div class="head">วันนี้วันพระ · ${t.holy.label}</div>
+        <p class="small">${swapped ? 'แมวชวนนั่งสมาธิกับยืดเหยียดเบาๆ แทนวันเล่นหนัก โปรแกรมเดิมย้ายไปวันถัดไปให้แล้ว'
+    : 'วันดีๆ สำหรับนั่งสมาธิสักครู่ หรือยืดเหยียดเบาๆ ให้ใจสงบ'}</p></div></div>
+    ${swapped ? '<button class="btn ghost sm" data-act="holyKeep">ขอเล่นตามแผนเดิม</button>' : ''}
+    ${t.day.holyKeep ? '<button class="btn ghost sm" data-act="holyCalm">กลับไปแบบเบาๆ ดีกว่า</button>' : ''}
+  </div>`;
+}
+
+// Short cards that only appear when there's something worth saying.
+function todayCards(t) {
+  const cards = [];
+  // A pattern the cat noticed, until the user says "got it" (then quiet for 14 days).
+  const pattern = findPatterns({ days: state.days, profile: t.p, today: t.key })
+    .find((p) => !state.insightSeen[p.id] || daysSince(state.insightSeen[p.id], t.key) >= 14);
+  if (pattern) {
+    cards.push(`<div class="card insight">
+      <div class="small muted">🔍 แมวสังเกตเห็นว่า…</div>
+      <p class="head">${pattern.text}</p>
+      <p class="small">${pattern.tip}</p>
+      <button class="btn ghost sm" data-act="insightSeen" data-id="${pattern.id}">ขอบใจนะ 🐾</button>
+    </div>`);
+  }
+  // Rewards close to (or at) their target.
+  for (const r of state.rewards.filter((x) => !x.claimedAt)) {
+    const pr = rewardProgress(r, state.days, t.key);
+    if (!pr.near && !pr.done) continue;
+    const m = REWARD_METRICS[r.metric];
+    cards.push(`<div class="card reward-card">
+      <div class="head">🎁 ${pr.done ? `ครบแล้ว! ได้เวลา${esc(r.title)}` : `อีก ${pr.left} ${m.unit} จะได้${esc(r.title)}`}</div>
+      ${progressBar(pr.pct, `${m.label} ${pr.count}/${pr.target} ${m.unit}`)}
+      ${pr.done ? `<button class="btn primary sm" data-act="claimReward" data-id="${r.id}">รับรางวัลแล้ว 🎉</button>` : ''}
+    </div>`);
+  }
+  // Early in the week: last week's story is ready.
+  const ws = weekStart(t.key);
+  if (daysSince(ws, t.key) <= 1 && state.storySeen !== ws) {
+    const prevWs = addDays(ws, -7);
+    const has = Array.from({ length: 7 }, (_, i) => addDays(prevWs, i)).some((k) => state.days[k]);
+    if (has) {
+      cards.push(`<button class="card story-teaser" data-act="openStory">
+        <span class="head">📖 เรื่องเล่าสัปดาห์ที่แล้วพร้อมแล้ว</span><span class="chev">›</span></button>`);
+    }
+  }
+  return cards.join('');
+}
+
+function progressBar(pct, label) {
+  const p = Math.round(pct * 100);
+  return `<div class="pbar" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100" aria-label="${label}">
+    <div style="width:${p}%"></div></div>
+    <div class="row between small"><span class="muted">${label}</span><b>${p}%</b></div>`;
 }
 
 // Steps are typed in from the phone's own step counter (a web app can't read it).
 function stepsRow(t, pers) {
-  const goal = pers?.steps ?? stepGoal('light', t.day.checkin?.level);
+  const goal = stepGoalToday(t, pers);
   const done = t.day.steps;
   const note = t.day.checkin ? { hard: 'วันนี้สดใส เพิ่มให้นิดนึง', light: '', rest: 'วันนี้ง่วง ลดให้แล้ว' }[t.day.checkin.level] : '';
   if (done != null && !ui.editSteps) {
@@ -1006,7 +1161,8 @@ function timelineItem(it, t, meals, isNow) {
     emoji = sessionEmoji(s);
     title = sessionTitle(s);
     sub = `${intensityChip(s)}${t.entry.moved && !t.done ? ' <span class="badge dusk">ย้ายมาจากวันก่อน</span>' : ''}`;
-    if (s.adjusted && !t.done) sub += `<div class="note">${ADJUST_TEXT[s.adjusted]}</div>`;
+    // วันพระ and "not today" already explain themselves in their own card above.
+    if (s.adjusted && !t.done && s.adjusted !== 'holy' && s.adjusted !== 'easy') sub += `<div class="note">${ADJUST_TEXT[s.adjusted]}</div>`;
     actions = s.activity === 'gym'
       ? '<button class="btn lotus" data-act="goGym">🏋️ วันนี้ไปยิม</button>'
       : '<button class="btn primary" data-act="startSession">เริ่มเลย</button>';
@@ -1040,6 +1196,7 @@ function timelineItem(it, t, meals, isNow) {
 function renderWeek() {
   const t = computeToday();
   const { week, missed, dropped } = t.plan;
+  const holyMap = state.settings.holyDays ? holyDays(week[0].key, week[6].key) : {};
   const note = missed > 0
     ? `พลาดไป ${missed} วัน ไม่เป็นไรเลย แมวย้ายตารางให้แล้ว${dropped ? ` (ตัดวันเบาออก ${dropped} วัน พักเยอะหน่อยก็ได้บุญ)` : ''} 🐾`
     : 'สลับวันหนัก วันเบา วันพัก และไม่เล่นกล้ามเนื้อเดิมติดกัน 🪷';
@@ -1053,7 +1210,8 @@ function renderWeek() {
       if (d.done) title = `${sessionEmoji(s)} ${esc(getDay(d.key).workout?.title ?? sessionTitle(s))}`;
       else if (s) title = `${sessionEmoji(s)} ${sessionTitle(s)}`;
       else title = d.isPast && d.available ? '🌙 พักไป' : '🌙 วันพัก';
-      const chips = s ? `${intensityChip(s)}${d.moved ? ' <span class="badge dusk">ย้ายมา</span>' : ''}` : '';
+      const holy = holyMap[d.key];
+      const chips = `${s ? `${intensityChip(s)}${d.moved ? ' <span class="badge dusk">ย้ายมา</span>' : ''}` : ''}${holy ? ` <span class="badge lotus">🪷 วันพระ</span>` : ''}`;
       const open = ui.weekOpen === d.key && s;
       const detail = open ? `<span class="wd-list">${sessionItems(s).map((i) => infoName(exerciseInfo(i.id))).join(' → ')}</span>` : '';
       return `<button class="week-day${d.isToday ? ' today' : ''}${d.isPast ? ' past' : ''}" data-act="weekOpen" data-key="${d.key}" aria-expanded="${!!open}">
@@ -1062,7 +1220,36 @@ function renderWeek() {
         <span class="head">${d.done ? '✅' : ''}</span>${detail}
       </button>`;
     }).join('')}
-    <button class="btn soft block" data-act="editProfile">✏️ เปลี่ยนวันว่าง เป้าหมาย หรือกิจกรรม</button>`;
+    <button class="btn soft block" data-act="editProfile">✏️ เปลี่ยนวันว่าง เป้าหมาย หรือกิจกรรม</button>
+    ${monthCalendar(t)}`;
+}
+
+// This month at a glance: days with a workout, and วันพระ.
+function monthCalendar(t) {
+  const today = parseKey(t.key);
+  const y = today.getFullYear();
+  const m = today.getMonth();
+  const first = dateKey(new Date(y, m, 1));
+  const last = dateKey(new Date(y, m + 1, 0));
+  const holy = state.settings.holyDays ? holyDays(first, last) : {};
+  const lead = (new Date(y, m, 1).getDay() + 6) % 7; // Monday first
+  const n = new Date(y, m + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push('<span></span>');
+  for (let d = 1; d <= n; d++) {
+    const key = dateKey(new Date(y, m, d));
+    const h = holy[key];
+    const worked = state.days[key]?.workout?.done;
+    const label = [`${d}`, worked ? 'ออกกำลังกายแล้ว' : '', h ? `วันพระ ${h.label}` : ''].filter(Boolean).join(' ');
+    cells.push(`<span class="cal-day${key === t.key ? ' today' : ''}${worked ? ' worked' : ''}" aria-label="${label}">
+      ${d}${h ? '<i class="cal-holy" aria-hidden="true">🪷</i>' : ''}</span>`);
+  }
+  return `<div class="card">
+    <h2>ปฏิทิน${today.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</h2>
+    <div class="cal">${['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((w) => `<b>${w}</b>`).join('')}${cells.join('')}</div>
+    <div class="legend cal-legend"><span><i class="cal-dot"></i>ออกกำลังกายแล้ว</span>${state.settings.holyDays ? '<span>🪷 วันพระ</span>' : ''}</div>
+    ${state.settings.holyDays ? '<p class="muted small">วันพระคำนวณจากดวงจันทร์ อาจต่างจากปฏิทินหลวงได้ 1 วัน</p>' : ''}
+  </div>`;
 }
 
 function renderFood() {
@@ -1171,6 +1358,7 @@ function renderMe() {
         <p>บอกน้ำหนัก ส่วนสูง อายุ และเพศหน่อย<br>แมวจะคำนวณ BMI แคลอรี่ น้ำ และก้าวเดินให้เอง</p>
         <button class="btn primary big block" data-act="editBody">กรอกข้อมูลร่างกาย</button>
       </div>
+      ${storyCard(t)}${rewardsCard(t)}
       <button class="btn soft block" data-act="tab" data-view="settings">⚙️ ตั้งค่าอื่นๆ</button>`;
     return;
   }
@@ -1244,6 +1432,7 @@ function renderMe() {
       ${weightChart(trend.points)}
     </div>
 
+    ${storyCard(t)}${rewardsCard(t)}
     <div class="card">
       <h2>ข้อมูลร่างกาย</h2>
       <p>สูง ${body.height} ซม. · อายุ ${body.age} ปี · ${SEXES[body.sex]}</p>
@@ -1253,6 +1442,55 @@ function renderMe() {
     <button class="btn soft block" data-act="tab" data-view="settings">⚙️ ตั้งค่าอื่นๆ</button>
     <p class="muted small center">ตัวเลขเป็นค่าประมาณจากสูตรมาตรฐาน ไม่ใช่คำแนะนำทางการแพทย์</p>`;
   bindChart(el.querySelector('.wchart'), trend.points);
+}
+
+// Weekly story: a few friendly sentences instead of a table.
+function storyCard(t) {
+  const ws = weekStart(t.key);
+  const which = ui.storyWeek ?? 'this';
+  const start = which === 'prev' ? addDays(ws, -7) : ws;
+  const keys = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  const prevKeys = keys.map((k) => addDays(k, -7));
+  const story = weeklyStory({ days: state.days, weekKeys: keys, prevKeys, profile: t.p, weights: state.weights, until: t.key });
+  if (which === 'prev' && state.storySeen !== ws) {
+    state.storySeen = ws;
+    save();
+  }
+  return `<div class="card story">
+    <div class="row between wrap"><h2>📖 เรื่องเล่าประจำสัปดาห์</h2>
+      <div class="chips">
+        <button class="chip" data-act="storyWeek" data-w="this" aria-pressed="${which === 'this'}">สัปดาห์นี้</button>
+        <button class="chip" data-act="storyWeek" data-w="prev" aria-pressed="${which === 'prev'}">สัปดาห์ก่อน</button>
+      </div></div>
+    <p class="muted small">${shortDate(keys[0])} – ${shortDate(keys[6])}${which === 'this' ? ' (ยังไม่จบสัปดาห์)' : ''}</p>
+    <div class="hero">${mascot(story.stats.workouts >= 3 ? 'bright' : 'normal', { size: 64 })}
+      <div class="story-text">${story.lines.map((l) => `<p>${l}</p>`).join('')}</div></div>
+  </div>`;
+}
+
+// Self-set rewards with a progress bar each.
+function rewardsCard(t) {
+  const list = state.rewards.map((r) => {
+    const pr = rewardProgress(r, state.days, t.key);
+    const m = REWARD_METRICS[r.metric];
+    return `<div class="reward${r.claimedAt ? ' claimed' : ''}">
+      <div class="row between"><b>🎁 ${esc(r.title)}</b>
+        <button class="icon-btn" data-act="rewardDelete" data-id="${r.id}" aria-label="ลบเป้า ${esc(r.title)}">✕</button></div>
+      <div class="small muted">เมื่อ${m.label}ครบ ${r.target} ${m.unit} · นับตั้งแต่ ${shortDate(r.start)}</div>
+      ${progressBar(pr.pct, r.claimedAt ? `ได้รับรางวัลแล้ว ${shortDate(r.claimedAt)} 🎉` : pr.done ? 'ครบแล้ว! ไปรับรางวัลได้เลย' : `${pr.count}/${pr.target} ${m.unit} · อีก ${pr.left}`)}
+      ${pr.done && !r.claimedAt ? `<button class="btn primary sm" data-act="claimReward" data-id="${r.id}">รับรางวัลแล้ว 🎉</button>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="card">
+    <h2>🎁 รางวัลที่ตั้งให้ตัวเอง</h2>
+    ${list || '<p class="muted small">ตั้งรางวัลเล็กๆ ไว้ล่อใจตัวเองกัน เช่น "เข้ายิมครบ 20 ครั้ง ซื้อรองเท้าคู่ใหม่"</p>'}
+    <form class="form-grid" data-form="reward">
+      <label>ทำอะไร<select name="metric">${Object.entries(REWARD_METRICS).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></label>
+      <label>ครบกี่ครั้ง/วัน<input type="number" name="target" inputmode="numeric" min="1" max="365" value="20"></label>
+      <label>รางวัลคือ<input type="text" name="title" maxlength="60" placeholder="เช่น ซื้อรองเท้าคู่ใหม่" autocomplete="off"></label>
+      <button class="btn primary">ตั้งเป้ารางวัล</button>
+    </form>
+  </div>`;
 }
 
 // Where the BMI sits on the scale (Asian cut-offs), with a marker instead of colour-coding.
@@ -1415,6 +1653,14 @@ function renderSettings() {
     </div>
 
     <div class="card">
+      <h2>เสียงและวันพระ</h2>
+      <div class="rem-row"><span class="grow">🔔 เสียงระฆัง/มู่ยู่ เมื่อทำรายการเสร็จ</span>
+        <label class="switch" aria-label="เปิด/ปิดเสียง"><input type="checkbox" data-act="soundToggle" ${state.settings.sound ? 'checked' : ''}><span></span></label></div>
+      <div class="rem-row"><span class="grow">🪷 แสดงวันพระ และชวนทำกิจกรรมเบาๆ ในวันพระ</span>
+        <label class="switch" aria-label="เปิด/ปิดวันพระ"><input type="checkbox" data-act="holyToggle" ${state.settings.holyDays ? 'checked' : ''}><span></span></label></div>
+    </div>
+
+    <div class="card">
       <h2>🎒 ของที่ต้องเตรียมไปยิม</h2>
       ${state.checklist.map((c) => `<div class="row"><span class="grow">${esc(c.text)}</span>
         <button class="icon-btn" data-act="prepDelete" data-id="${c.id}" aria-label="ลบ ${esc(c.text)}">✕</button></div>`).join('')}
@@ -1465,7 +1711,7 @@ function currentDue(now = Date.now()) {
     now,
     log: state.reminderLog[t.key] ?? {},
     waterGoal: waterGoalToday(t),
-    workoutPending: !!t.session && !t.done,
+    workoutPending: !!t.session && !t.done && !t.day.easy,
   });
 }
 
@@ -1545,6 +1791,7 @@ function tick() {
     render();
   }
   if (!state.profile) return;
+  checkRewards();
   const due = currentDue();
   let changed = false;
   for (const d of due) {
@@ -1555,6 +1802,31 @@ function tick() {
   }
   if (changed) save();
   renderAlerts(due);
+}
+
+// Tell the user once when a reward is close, and once when it's reached.
+function checkRewards() {
+  const key = todayKey();
+  let changed = false;
+  for (const r of state.rewards.filter((x) => !x.claimedAt)) {
+    const pr = rewardProgress(r, state.days, key);
+    const m = REWARD_METRICS[r.metric];
+    let msg = null;
+    if (pr.done && !r.doneNotified) {
+      r.doneNotified = true;
+      msg = `🎁 ครบแล้ว! ได้เวลา${r.title}`;
+    } else if (pr.near && !r.nearNotified) {
+      r.nearNotified = true;
+      msg = `🎁 อีก ${pr.left} ${m.unit} จะได้${r.title}แล้ว`;
+    }
+    if (!msg) continue;
+    changed = true;
+    toast(msg);
+    if (document.visibilityState !== 'visible' && swReg && 'Notification' in window && Notification.permission === 'granted') {
+      swReg.showNotification(msg, { body: 'แมวนับให้อยู่นะ 🐾', icon: 'icons/icon.svg', tag: `reward-${r.id}` }).catch(() => {});
+    }
+  }
+  if (changed) save();
 }
 
 function handleReminderAction({ id, type, action }) {
@@ -1589,6 +1861,7 @@ function render() {
   renderMe();
   renderSettings();
   renderAlerts();
+  checkRewards();
 }
 
 // ---------- events ----------
@@ -1717,7 +1990,10 @@ const actions = {
     day.ticks[d.id] = !day.ticks[d.id];
     save();
     render();
-    if (day.ticks[d.id]) toast(cheer());
+    if (day.ticks[d.id]) {
+      sfx.knock();
+      toast(cheer());
+    }
   },
   workoutTick: () => {
     const t = computeToday();
@@ -1725,6 +2001,82 @@ const actions = {
     else completeWorkout(t.session);
   },
   goGym: () => startSession({ gym: true }),
+  mood: (d) => {
+    const day = editDay(todayKey());
+    const v = Number(d.v);
+    day.mood = day.mood === v ? null : v;
+    save();
+    render();
+    if (day.mood) sfx.knock();
+  },
+  easyOn: () => {
+    editDay(todayKey()).easy = true;
+    save();
+    render();
+    sfx.bell();
+    toast('ลดเป้าให้แล้ว พักใจได้เลย 🫶', () => actions.easyOff());
+  },
+  easyOff: () => {
+    editDay(todayKey()).easy = false;
+    save();
+    render();
+  },
+  holyKeep: () => {
+    editDay(todayKey()).holyKeep = true;
+    save();
+    render();
+    toast('โอเค เล่นตามแผนเดิมนะ สู้ๆ 💪');
+  },
+  holyCalm: () => {
+    editDay(todayKey()).holyKeep = false;
+    save();
+    render();
+  },
+  insightSeen: (d) => {
+    state.insightSeen[d.id] = todayKey();
+    save();
+    renderToday();
+  },
+  openStory: () => {
+    ui.storyWeek = 'prev';
+    showView('me');
+    document.querySelector('#view-me .story')?.scrollIntoView({ block: 'start' });
+  },
+  storyWeek: (d) => {
+    ui.storyWeek = d.w;
+    renderMe();
+  },
+  claimReward: (d) => {
+    const r = state.rewards.find((x) => x.id === d.id);
+    if (!r) return;
+    r.claimedAt = todayKey();
+    save();
+    render();
+    sfx.bless();
+    toast(`ยินดีด้วย! ${r.title} 🎁`);
+  },
+  rewardDelete: (d) => {
+    const idx = state.rewards.findIndex((x) => x.id === d.id);
+    const [r] = state.rewards.splice(idx, 1);
+    save();
+    render();
+    toast('ลบเป้ารางวัลแล้ว', () => {
+      state.rewards.splice(idx, 0, r);
+      save();
+      render();
+    });
+  },
+  soundToggle: () => {
+    state.settings.sound = !state.settings.sound;
+    save();
+    renderSettings();
+    sfx.bell();
+  },
+  holyToggle: () => {
+    state.settings.holyDays = !state.settings.holyDays;
+    save();
+    render();
+  },
   editSteps: () => {
     ui.editSteps = true;
     renderToday();
@@ -1940,15 +2292,31 @@ const changes = {
 
 const forms = {
   machine: (form) => saveMachine(form),
+  reward: (form) => {
+    const title = form.title.value.trim();
+    const target = Number(form.target.value);
+    if (!title || !(target >= 1 && target <= 365)) {
+      toast('ใส่รางวัลและจำนวน (1–365) ก่อนนะ');
+      return;
+    }
+    state.rewards.push({ id: newId(), title, metric: form.metric.value, target: Math.round(target), start: todayKey() });
+    save();
+    render();
+    sfx.knock();
+    toast('ตั้งเป้ารางวัลแล้ว แมวจะคอยนับให้ 🎁');
+  },
   steps: (form) => {
     const n = Number(form.steps.value);
     if (form.steps.value === '' || !Number.isFinite(n) || n < 0 || n > 100000) {
       toast('ใส่จำนวนก้าวเป็นตัวเลขนะ');
       return;
     }
-    editDay(todayKey()).steps = Math.round(n);
+    const day = editDay(todayKey());
+    day.steps = Math.round(n);
+    day.stepsMet = day.steps >= stepGoalToday();
     ui.editSteps = false;
     save();
+    sfx.knock();
     render();
     toast(`จดแล้ว ${Math.round(n).toLocaleString('th-TH')} ก้าว ${cheer()}`);
   },
@@ -1984,6 +2352,7 @@ const forms = {
 };
 
 document.addEventListener('click', (e) => {
+  ui.userActed = true;
   const el = e.target.closest('[data-act]');
   if (!el || el.disabled) return;
   actions[el.dataset.act]?.(el.dataset, el, e);

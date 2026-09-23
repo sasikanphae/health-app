@@ -38,6 +38,15 @@ const LINES = {
     'อีกแค่ {left} อย่างเอง แมวถือพานรอรับอยู่ 🌸',
     'เก่งมาก {n} อย่างแล้ว บุญพอกพูนขึ้นทุกนาที ✨',
   ],
+  easy: [
+    'วันนี้พักใจได้เต็มที่ ไม่ต้องทำครบ แมวอยู่ข้างๆ นะ 🌙',
+    'วันที่ไม่ไหวก็มีได้ ทำแค่ที่ทำได้ก็เก่งแล้ว 🫶',
+    'ลดเป้าให้หมดแล้ว หายใจลึกๆ แล้วใจดีกับตัวเองนะ 🍵',
+  ],
+  holy: [
+    'วันนี้วันพระ แมวชวนนั่งสมาธิเบาๆ ใจสงบ ร่างกายก็ได้พัก 🪷',
+    'วันพระทั้งที ทำบุญด้วยการใจดีกับตัวเองสักวันนะ 🙏',
+  ],
   allDone: [
     'ครบทุกอย่างแล้ว! บุญเต็มถัง แมวขอไปนอนก่อนนะ 😽',
     'เก่งเกินแมว! วันนี้ได้บุญไปเต็มๆ 🪷',
@@ -45,9 +54,12 @@ const LINES = {
   ],
 };
 
-export function greeting({ key, mood, checkedIn, done, total, isRestDay, missed, hour }) {
+export function greeting({ key, mood, checkedIn, done, total, isRestDay, missed, hour, easy, habit, holy }) {
   const seed = `${key}:${done}`;
+  if (easy) return pick(LINES.easy, seed);
   if (total > 0 && done >= total) return pick(LINES.allDone, seed);
+  if (habit && done < 2) return habit.text;
+  if (holy && done === 0) return pick(LINES.holy, key);
   if (missed > 0 && done === 0) return pick(LINES.missed, key);
   if (!checkedIn && hour < 11) return pick(LINES.morning, key);
   if (done > 0) return pick(LINES.progress, seed).replace('{n}', done).replace('{left}', total - done);
@@ -65,6 +77,8 @@ export const LEVEL_ADVICE = {
 };
 
 export const ADJUST_TEXT = {
+  easy: 'โหมดวันนี้ไม่ไหว: ยืดเส้นเบาๆ ถ้าอยาก ไม่ทำก็ไม่เป็นไร 🌙',
+  holy: 'วันพระ แมวชวนนั่งสมาธิกับยืดเหยียดเบาๆ แทนวันเล่นหนัก โปรแกรมเดิมย้ายไปวันถัดไปให้แล้ว 🪷',
   rest: 'เช็กอินบอกว่าเหนื่อย วันนี้เปลี่ยนเป็นยืดเส้นเบาๆ แทน 😴',
   light: 'ปรับให้เบาลงตามเช็กอินแล้ว 💛',
   'sore-light': 'เมื่อยนิดๆ เลยลดความหนักลงให้ 💛',

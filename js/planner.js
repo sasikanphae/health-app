@@ -269,6 +269,7 @@ const HOME_PROGRAM = {
 // Ordered exercise list for a session: big movements first, treadmill warm-up at the gym.
 export function sessionItems(session) {
   if (!session) return [];
+  if (session.adjusted === 'holy') return [{ id: 'meditate', role: 'main' }];
   if (session.intensity === 'rest' || session.activity === 'mobility') return [{ id: 'mobility', role: 'main' }];
   if (session.activity === 'gym') {
     if (session.kind === 'cardio') return [{ id: 'treadmill', role: 'main' }];

@@ -28,6 +28,8 @@ export function defaultState() {
     days: {},
     settings: {
       waterGoal: 8,
+      sound: true, // bell / wooden-fish sounds when something is done
+      holyDays: true, // show วันพระ and suggest calm activities on those days
       reminders: [
         { id: 'r-checkin', type: 'checkin', time: '07:30', enabled: true },
         { id: 'r-water1', type: 'water', time: '10:00', enabled: true },
@@ -40,6 +42,9 @@ export function defaultState() {
     lifts: {}, // machine id -> [{ date, weight, sets, target, completed, intensity }]
     weights: [], // body weight log: [{ date, kg }]
     shopping: {}, // week start key -> [ticked item names]
+    rewards: [], // [{ id, title, metric, target, start, claimedAt, nearNotified, doneNotified }]
+    insightSeen: {}, // pattern id -> date the user said "got it"
+    storySeen: null, // week start key of the last weekly story the user opened
     reminderLog: {},
   };
 }
@@ -64,6 +69,8 @@ export function normalize(raw) {
     state.days[key] = { ...emptyDay(), ...day };
   }
   if (!Array.isArray(state.weights)) state.weights = [];
+  if (!Array.isArray(state.rewards)) state.rewards = [];
+  if (!state.insightSeen || typeof state.insightSeen !== 'object') state.insightSeen = {};
   if (!state.lifts || typeof state.lifts !== 'object') state.lifts = {};
   // Machine weights saved before the lift log existed become its first entry.
   for (const [id, m] of Object.entries(state.machines)) {
@@ -85,6 +92,7 @@ export function migrateV2(v2) {
       water: d.water ?? 0,
       waterAt: d.waterAt ?? [],
       checkin: d.checkin ?? null,
+      mood: d.mood ?? null,
     };
   }
   for (const [id, m] of Object.entries(v2?.machines ?? {})) {

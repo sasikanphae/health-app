@@ -34,7 +34,7 @@ test('migrateV2 keeps check-ins, water, machine settings and checklist', () => {
   });
   assert.equal(s.days['2026-09-20'].water, 5);
   assert.equal(s.days['2026-09-20'].checkin.score, 80);
-  assert.equal(s.days['2026-09-20'].mood, undefined);
+  assert.equal(s.days['2026-09-20'].mood, 4);
   assert.deepEqual(s.machines['leg-press'], { seat: '5', weight: 40, note: 'ok', updatedAt: null });
   assert.equal(s.settings.waterGoal, 9);
   assert.deepEqual(s.legacyGymDays, [2, 4]);
