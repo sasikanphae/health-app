@@ -1,16 +1,22 @@
 // Offline support (network first, cache fallback) and notification button handling.
-const CACHE = 'health-app-v2';
+const CACHE = 'health-app-v3';
 const ASSETS = [
   './',
   'index.html',
   'style.css',
   'js/app.js',
+  'js/art.js',
+  'js/copy.js',
+  'js/gym-data.js',
   'js/health.js',
-  'js/data.js',
+  'js/meals.js',
+  'js/planner.js',
   'js/store.js',
   'manifest.webmanifest',
   'icons/icon.svg',
 ];
+// Google Fonts are cached too, so the app keeps its look offline.
+const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
@@ -26,11 +32,13 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET') return;
+  if (url.origin !== location.origin && !FONT_HOSTS.includes(url.hostname)) return;
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        if (res.ok) {
+        if (res.ok || res.type === 'opaque') {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, copy));
         }

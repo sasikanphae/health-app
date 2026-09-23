@@ -1,31 +1,42 @@
-import { DEFAULT_CHECKLIST } from './data.js';
 import { emptyDay, dateKey, addDays } from './health.js';
+import { GYM_BAG } from './gym-data.js';
 
-export const STORAGE_KEY = 'health-app:v2';
-const LEGACY_KEY = 'health-app:v1';
+export const STORAGE_KEY = 'health-app:v3';
+const V2_KEY = 'health-app:v2';
+const V1_KEY = 'health-app:v1';
+const REMINDER_TYPES = ['checkin', 'water', 'workout'];
 
 export function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+export function defaultProfile(gymDays) {
+  return {
+    goal: 'fit',
+    days: gymDays?.length ? [...gymDays] : [1, 3, 5],
+    slot: 'evening',
+    activities: ['gym', 'walk'],
+    food: { mode: 'mix', allergies: [], avoid: [], budget: 'mid' },
+  };
+}
+
 export function defaultState() {
   return {
-    version: 2,
+    version: 3,
+    profile: null, // set by the first-run questions
     days: {},
     settings: {
       waterGoal: 8,
-      gymDays: [1, 3, 5],
       reminders: [
         { id: 'r-checkin', type: 'checkin', time: '07:30', enabled: true },
         { id: 'r-water1', type: 'water', time: '10:00', enabled: true },
         { id: 'r-water2', type: 'water', time: '14:00', enabled: true },
-        { id: 'r-water3', type: 'water', time: '17:00', enabled: true },
-        { id: 'r-gym', type: 'gym', time: '17:30', enabled: true },
-        { id: 'r-mood', type: 'mood', time: '20:30', enabled: true },
+        { id: 'r-workout', type: 'workout', time: '17:30', enabled: true },
       ],
     },
-    checklist: DEFAULT_CHECKLIST.map((text, i) => ({ id: `c${i + 1}`, text })),
-    machines: {},
+    checklist: GYM_BAG.map((text, i) => ({ id: `c${i + 1}`, text })),
+    machines: {}, // id -> { seat, weight, note, updatedAt }
+    shopping: {}, // week start key -> [ticked item names]
     reminderLog: {},
   };
 }
@@ -37,20 +48,48 @@ export function normalize(raw) {
   const state = {
     ...base,
     ...raw,
+    version: 3,
     settings: { ...base.settings, ...raw.settings },
     days: {},
   };
+  state.settings.reminders = state.settings.reminders.filter((r) => REMINDER_TYPES.includes(r.type));
+  if (raw.profile) {
+    const p = defaultProfile();
+    state.profile = { ...p, ...raw.profile, food: { ...p.food, ...raw.profile.food } };
+  }
   for (const [key, day] of Object.entries(raw.days ?? {})) {
     state.days[key] = { ...emptyDay(), ...day };
   }
   return state;
 }
 
-// v1 stored { profile, log: { date: { water, mood, steps, sleep, weight } } }.
+// v2: days had water/checkin/prep; machines stored { fields: {label: value}, weight, note };
+// reminders included mood and gym-prep types; settings.gymDays held the gym weekdays.
+export function migrateV2(v2) {
+  const state = defaultState();
+  for (const [key, d] of Object.entries(v2?.days ?? {})) {
+    state.days[key] = {
+      ...emptyDay(),
+      water: d.water ?? 0,
+      waterAt: d.waterAt ?? [],
+      checkin: d.checkin ?? null,
+    };
+  }
+  for (const [id, m] of Object.entries(v2?.machines ?? {})) {
+    const seat = Object.values(m.fields ?? {}).find(Boolean) ?? '';
+    state.machines[id] = { seat, weight: m.weight ?? null, note: m.note ?? '', updatedAt: m.updatedAt ?? null };
+  }
+  if (v2?.settings?.waterGoal) state.settings.waterGoal = v2.settings.waterGoal;
+  if (Array.isArray(v2?.checklist) && v2.checklist.length) state.checklist = v2.checklist;
+  // Remembered so the first-run questions can start from the old gym days.
+  state.legacyGymDays = v2?.settings?.gymDays ?? null;
+  return state;
+}
+
 export function migrateV1(v1) {
   const state = defaultState();
   for (const [key, entry] of Object.entries(v1?.log ?? {})) {
-    state.days[key] = { ...emptyDay(), water: entry.water ?? 0, mood: entry.mood ?? null };
+    state.days[key] = { ...emptyDay(), water: entry.water ?? 0 };
   }
   return state;
 }
@@ -67,8 +106,10 @@ export function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return normalize(JSON.parse(raw));
-    const legacy = localStorage.getItem(LEGACY_KEY);
-    if (legacy) return migrateV1(JSON.parse(legacy));
+    const v2 = localStorage.getItem(V2_KEY);
+    if (v2) return migrateV2(JSON.parse(v2));
+    const v1 = localStorage.getItem(V1_KEY);
+    if (v1) return migrateV1(JSON.parse(v1));
   } catch { /* corrupted or unavailable storage: start fresh */ }
   return defaultState();
 }
@@ -76,4 +117,48 @@ export function load() {
 export function save(state) {
   pruneReminderLog(state);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+// ---------- machine photos (IndexedDB: too big for localStorage) ----------
+
+let dbPromise = null;
+function db() {
+  dbPromise ??= new Promise((resolve, reject) => {
+    const req = indexedDB.open('health-app', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('photos');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+async function tx(mode, fn) {
+  const store = (await db()).transaction('photos', mode).objectStore('photos');
+  return new Promise((resolve, reject) => {
+    const req = fn(store);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export const photos = {
+  put: (id, blob) => tx('readwrite', (s) => s.put(blob, id)),
+  delete: (id) => tx('readwrite', (s) => s.delete(id)),
+  async all() {
+    const keys = await tx('readonly', (s) => s.getAllKeys());
+    const out = {};
+    for (const k of keys) out[k] = await tx('readonly', (s) => s.get(k));
+    return out;
+  },
+};
+
+// Shrink a camera photo so storage stays small (longest side 1000px, JPEG).
+export async function resizePhoto(file, max = 1000) {
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bmp.width * scale);
+  canvas.height = Math.round(bmp.height * scale);
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
 }

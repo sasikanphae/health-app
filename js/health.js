@@ -1,4 +1,5 @@
-// Pure logic — no DOM or storage access, so everything here is unit tested in Node.
+// Pure logic shared across the app: dates, the morning check-in score, reminders.
+// No DOM or storage access, so everything here is unit tested in Node.
 
 // ---------- dates ----------
 
@@ -29,12 +30,39 @@ export function timeOn(key, hhmm) {
   return d.getTime();
 }
 
-export function isGymDay(key, gymDays) {
-  return gymDays.includes(parseKey(key).getDay());
+export function toMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+export function fromMinutes(min) {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+}
+
+// Small deterministic string hash, used to pick "random" but stable menus and messages.
+export function hash(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
 
 export function emptyDay() {
-  return { water: 0, waterAt: [], mood: null, checkin: null, prep: [] };
+  return {
+    water: 0,
+    waterAt: [],
+    checkin: null,
+    meals: {}, // slot -> 'plan' | 'other'
+    mealSwaps: {}, // slot -> how many times "change menu" was tapped
+    ticks: {}, // other timeline items (wind-down, rest-day stretch)
+    workout: null, // { done, sessionId, kind, focus, intensity, activity, at }
+    active: null, // the session snapshot started via "today I'm going to the gym"
+    sets: {}, // exercise id -> sets finished
+    altSwaps: {}, // machine id -> alternative exercise id
+    prep: [], // gym-bag checklist ids ticked today
+  };
 }
 
 // ---------- morning check-in ----------
@@ -47,10 +75,11 @@ export const SLEEP_HOURS = [
   { id: '8+', label: 'มากกว่า 8 ชม.', value: 1 },
 ];
 
+// `mood` drives the mascot: bright / normal / sleepy.
 export const LEVELS = {
-  hard: { label: 'เล่นหนักได้', icon: '💪' },
-  light: { label: 'เล่นเบาๆ', icon: '🚶' },
-  rest: { label: 'พักดีกว่า', icon: '🛌' },
+  hard: { label: 'สดใส พร้อมลุย', icon: '✨', mood: 'bright' },
+  light: { label: 'ปกติ ค่อยๆ ไป', icon: '🍵', mood: 'normal' },
+  rest: { label: 'ง่วง ขอพักหน่อย', icon: '😴', mood: 'sleepy' },
 };
 
 const WEIGHTS = { sleepHours: 25, sleepQuality: 15, soreness: 20, stress: 15, energy: 25 };
@@ -89,35 +118,15 @@ export function readiness(answers) {
   return { score, level, verySore, reasons };
 }
 
-// ---------- today's tasks ----------
-
-export function prepDone(day, checklist) {
-  return checklist.length > 0 && checklist.every((item) => day.prep.includes(item.id));
-}
-
-// Ordered list of tasks for a day; `done` decides which section the home screen shows it in.
-export function tasksForDay({ day, key, settings, checklist }) {
-  const tasks = [
-    { type: 'checkin', done: day.checkin != null },
-    { type: 'water', done: day.water >= settings.waterGoal },
-    { type: 'mood', done: day.mood != null },
-  ];
-  if (isGymDay(key, settings.gymDays)) {
-    tasks.push({ type: 'gym', done: prepDone(day, checklist) });
-  }
-  return tasks;
-}
-
 // ---------- reminders ----------
 
-// Whether the thing a reminder asks for has been done since the reminder was set to fire.
+// Whether the thing a reminder asks for has been done since it was set to fire.
 function reminderSatisfied(r, at, ctx) {
-  const { day, settings, gymDay, checklist } = ctx;
+  const { day, waterGoal, workoutPending } = ctx;
   switch (r.type) {
     case 'checkin': return day.checkin != null;
-    case 'mood': return day.mood != null;
-    case 'water': return day.water >= settings.waterGoal || day.waterAt.some((t) => t >= at);
-    case 'gym': return !gymDay || prepDone(day, checklist);
+    case 'water': return day.water >= waterGoal || day.waterAt.some((t) => t >= at);
+    case 'workout': return !workoutPending;
     default: return true;
   }
 }
@@ -126,8 +135,8 @@ function reminderSatisfied(r, at, ctx) {
 // Only the latest-passed reminder of each type is considered, so snoozing or
 // skipping the 14:00 water reminder doesn't bring the 10:00 one back.
 // log: { [reminderId]: { snoozeUntil?, skipped?, notifiedAt? } } for that day.
-export function dueReminders({ reminders, day, key, now, log = {}, settings, checklist }) {
-  const ctx = { day, settings, checklist, gymDay: isGymDay(key, settings.gymDays) };
+export function dueReminders({ reminders, day, key, now, log = {}, waterGoal, workoutPending }) {
+  const ctx = { day, waterGoal, workoutPending };
   const latest = new Map();
   for (const r of reminders) {
     if (!r.enabled) continue;

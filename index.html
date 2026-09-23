@@ -3,12 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f9d76">
-  <meta name="description" content="สมุดสุขภาพส่วนตัว บันทึกได้ในแตะเดียว">
-  <title>สุขภาพดี</title>
+  <meta name="theme-color" content="#fbf5ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#211b15" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="แมวน้อยนั่งสมาธิช่วยจัดตารางออกกำลังกาย อาหาร และพาไปยิม แบบสบายใจ">
+  <title>เหมียวสมาธิ</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mali:wght@500;600;700&family=IBM+Plex+Sans+Thai+Looped:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,23 +20,28 @@
   <div id="alerts" class="alerts" aria-live="polite"></div>
 
   <main>
-    <section id="view-home" class="view active" aria-label="วันนี้"></section>
-    <section id="view-gym" class="view" aria-label="คู่มือเครื่องเล่น"></section>
-    <section id="view-prep" class="view" aria-label="เตรียมของไปยิม"></section>
+    <section id="view-today" class="view active" aria-label="วันนี้"></section>
+    <section id="view-week" class="view" aria-label="ตารางสัปดาห์"></section>
+    <section id="view-food" class="view" aria-label="แผนอาหาร"></section>
+    <section id="view-gym" class="view" aria-label="ยิม"></section>
     <section id="view-settings" class="view" aria-label="ตั้งค่า"></section>
   </main>
 
   <nav class="tabs" role="tablist">
-    <button role="tab" data-act="tab" data-view="home" aria-selected="true">🏠<span>วันนี้</span></button>
-    <button role="tab" data-act="tab" data-view="gym" aria-selected="false">🏋️<span>เครื่องเล่น</span></button>
-    <button role="tab" data-act="tab" data-view="prep" aria-selected="false">🎒<span>เตรียมของ</span></button>
+    <button role="tab" data-act="tab" data-view="today" aria-selected="true">🪷<span>วันนี้</span></button>
+    <button role="tab" data-act="tab" data-view="week" aria-selected="false">📅<span>ตาราง</span></button>
+    <button role="tab" data-act="tab" data-view="food" aria-selected="false">🍱<span>อาหาร</span></button>
+    <button role="tab" data-act="tab" data-view="gym" aria-selected="false">🏋️<span>ยิม</span></button>
     <button role="tab" data-act="tab" data-view="settings" aria-selected="false">⚙️<span>ตั้งค่า</span></button>
   </nav>
 
-  <!-- Full-screen sheet for the check-in flow and machine details -->
+  <!-- Full-screen sheet: first-run questions, check-in, workout, exercise details -->
   <div id="sheet" class="sheet" role="dialog" aria-modal="true" hidden>
     <div class="sheet-body" id="sheet-body"></div>
   </div>
+
+  <!-- Rest timer, stays visible above everything while counting down -->
+  <div id="timer" class="timer" role="timer" aria-live="off" hidden></div>
 
   <div id="toast" class="toast" role="status" aria-live="polite">
     <span id="toast-text"></span><button id="toast-undo" type="button" hidden>เลิกทำ</button>
