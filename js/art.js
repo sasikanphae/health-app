@@ -3,59 +3,47 @@
 // everything follows the theme (and dark mode).
 
 // ---------- mascot ----------
+// A minimal line-drawn cat sitting in meditation. One colour (currentColor),
+// one stroke weight; mood is told by shape only: eyes, ears and posture.
 
 const FACES = {
+  // Bright: eyes open, ears up, three small lines of light.
   bright: {
-    eyes: `<circle class="m-ink" cx="84" cy="84" r="6.5"/><circle class="m-ink" cx="116" cy="84" r="6.5"/>
-      <circle class="m-shine" cx="86.5" cy="81.5" r="2.2"/><circle class="m-shine" cx="118.5" cy="81.5" r="2.2"/>`,
-    mouth: '<path class="m-mouth" d="M92 96 q8 11 16 0 z"/>',
-    extra: `<path class="m-spark" d="M36 58 l4 -10 l4 10 l10 4 l-10 4 l-4 10 l-4 -10 l-10 -4 z"/>
-      <path class="m-spark" d="M158 46 l3 -7 l3 7 l7 3 l-7 3 l-3 7 l-3 -7 l-7 -3 z"/>
-      <path class="m-spark small" d="M166 104 l2 -5 l2 5 l5 2 l-5 2 l-2 5 l-2 -5 l-5 -2 z"/>`,
-    halo: true,
+    ears: 'M43 33 41 15 54 27M77 33 79 15 66 27',
+    eyes: '<circle cx="52.5" cy="44" r="1.6" class="m-dot"/><circle cx="67.5" cy="44" r="1.6" class="m-dot"/>',
+    extra: 'M92 24l4-4M95 33h6M86 16l1-6',
+    tilt: '',
   },
+  // Normal: calm half-closed eyes (ตาหยี).
   normal: {
-    eyes: '<path class="m-line" d="M77 84 q7 7 14 0 M109 84 q7 7 14 0"/>',
-    mouth: '<path class="m-line" d="M94 95 q3 4 6 0 q3 4 6 0"/>',
+    ears: 'M43 33 41 15 54 27M77 33 79 15 66 27',
+    eyes: '<path d="M49 44.5q3.5 3 7 0M64 44.5q3.5 3 7 0"/>',
     extra: '',
-    halo: true,
+    tilt: '',
   },
+  // Sleepy: ears drooping to the sides, eyes closed, head leaning, a small z.
   sleepy: {
-    eyes: '<path class="m-line" d="M77 87 q7 3 14 0 M109 87 q7 3 14 0"/>',
-    mouth: '<ellipse class="m-mouth" cx="100" cy="99" rx="3.5" ry="4.5"/>',
-    extra: '<text class="m-zzz" x="146" y="52">z</text><text class="m-zzz big" x="158" y="36">Z</text>',
-    halo: false,
+    ears: 'M42 36 29 29 45 27M78 36 91 29 75 27',
+    eyes: '<path d="M49 46h7M64 46h7"/>',
+    extra: 'M88 16h6l-6 7h6M97 7h4l-4 5h4',
+    tilt: 'rotate(-6 60 44)',
   },
 };
 
-export function mascot(mood = 'normal', { size = 120, label = 'แมวน้อยนั่งสมาธิ' } = {}) {
+export function mascot(mood = 'normal', { size = 120, label = 'แมวนั่งสมาธิ' } = {}) {
   const f = FACES[mood] ?? FACES.normal;
-  const petals = [-64, -32, 0, 32, 64]
-    .map((a) => `<ellipse class="m-petal" cx="100" cy="150" rx="15" ry="30" transform="rotate(${a} 100 180)"/>`).join('');
-  const tilt = mood === 'sleepy' ? 'rotate(-7 100 90)' : '';
-  return `<svg class="mascot mood-${mood}" viewBox="0 0 200 200" width="${size}" height="${size}" role="img" aria-label="${label}">
-    <circle class="m-aura" cx="100" cy="112" r="86"/>
-    ${petals}
-    <ellipse class="m-pad" cx="100" cy="180" rx="72" ry="12"/>
-    <path class="m-body" d="M140 166 q34 -2 26 -32 q-4 -12 -14 -6"/>
-    <path class="m-body" d="M62 170 Q56 112 100 104 Q144 112 138 170 Z"/>
-    <ellipse class="m-belly" cx="100" cy="138" rx="19" ry="21"/>
-    <ellipse class="m-body" cx="100" cy="168" rx="46" ry="14"/>
-    <ellipse class="m-body" cx="92" cy="148" rx="10" ry="7.5"/>
-    <ellipse class="m-body" cx="108" cy="148" rx="10" ry="7.5"/>
-    <g transform="${tilt}">
-      ${f.halo ? '<ellipse class="m-halo" cx="100" cy="26" rx="24" ry="6"/>' : ''}
-      <path class="m-body" d="M66 72 L62 36 L94 56 Z M134 72 L138 36 L106 56 Z"/>
-      <path class="m-ear" d="M70 64 L68 46 L84 57 Z M130 64 L132 46 L116 57 Z"/>
-      <ellipse class="m-body" cx="100" cy="84" rx="41" ry="34"/>
-      <path class="m-stripe" d="M93 55 v9 M100 52 v12 M107 55 v9"/>
-      <circle class="m-blush" cx="76" cy="96" r="6.5"/><circle class="m-blush" cx="124" cy="96" r="6.5"/>
+  return `<svg class="mascot mood-${mood}" viewBox="0 0 120 120" width="${size}" height="${size}" role="img" aria-label="${label}">
+    <g transform="${f.tilt}">
+      <path d="${f.ears}"/>
+      <path d="M40 40c0-12 9-19 20-19s20 7 20 19c0 11-9 18-20 18s-20-7-20-18Z"/>
       ${f.eyes}
-      <path class="m-nose" d="M96.5 90 h7 l-3.5 4 z"/>
-      ${f.mouth}
-      <path class="m-whisker" d="M61 91 h-15 M61 97 l-14 4 M139 91 h15 M139 97 l14 4"/>
+      <path d="M57 51l3 2 3-2"/>
     </g>
-    ${f.extra}
+    <path d="M47 58c-8 8-12 20-10 36M73 58c8 8 12 20 10 36"/>
+    <path d="M30 98c8-5 20-7 30-7s22 2 30 7c-8 5-20 7-30 7s-22-2-30-7Z"/>
+    <path d="M52 86c5 4 11 4 16 0"/>
+    <path d="M86 99c9 0 13-5 12-13"/>
+    ${f.extra ? `<path d="${f.extra}"/>` : ''}
   </svg>`;
 }
 

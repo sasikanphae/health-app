@@ -213,35 +213,35 @@ export const MACHINES = [
 
 export const HOME_EXERCISES = {
   squat: {
-    name: 'สควอท (Squat)', emoji: '🪑', muscles: { primary: ['quads', 'glutes'], secondary: ['hamstrings'] },
+    name: 'สควอท (Squat)', muscles: { primary: ['quads', 'glutes'], secondary: ['hamstrings'] },
     how: ['ยืนเท้ากว้างเท่าไหล่', 'นั่งลงเหมือนนั่งเก้าอี้ หลังตรง เข่าไม่บีบเข้า', 'ดันส้นเท้ายืนขึ้น'],
   },
   lunge: {
-    name: 'ลันจ์ถอยหลัง (Reverse Lunge)', emoji: '🦵', muscles: { primary: ['quads', 'glutes'], secondary: ['hamstrings'] },
+    name: 'ลันจ์ถอยหลัง (Reverse Lunge)', muscles: { primary: ['quads', 'glutes'], secondary: ['hamstrings'] },
     how: ['ยืนตรง ก้าวขาหนึ่งถอยไปข้างหลัง', 'ย่อลงจนเข่าหลังเกือบแตะพื้น', 'ดันขาหน้ากลับมายืน สลับข้าง'],
   },
   'glute-bridge': {
-    name: 'ยกสะโพก (Glute Bridge)', emoji: '🌉', muscles: { primary: ['glutes'], secondary: ['hamstrings'] },
+    name: 'ยกสะโพก (Glute Bridge)', muscles: { primary: ['glutes'], secondary: ['hamstrings'] },
     how: ['นอนหงาย ชันเข่า เท้าวางพื้น', 'ดันส้นเท้ายกสะโพกขึ้น บีบก้นค้าง 1 วินาที', 'ลดลงช้าๆ'],
   },
   'calf-raise': {
-    name: 'เขย่งปลายเท้า (Calf Raise)', emoji: '🦶', muscles: { primary: ['calves'], secondary: [] },
+    name: 'เขย่งปลายเท้า (Calf Raise)', muscles: { primary: ['calves'], secondary: [] },
     how: ['ยืนจับผนังหรือเก้าอี้', 'เขย่งขึ้นให้สูงที่สุด ค้าง 1 วินาที', 'ลดส้นเท้าลงช้าๆ'],
   },
   pushup: {
-    name: 'วิดพื้น (Push-up)', emoji: '🙌', muscles: { primary: ['chest'], secondary: ['shoulders', 'triceps'] },
+    name: 'วิดพื้น (Push-up)', muscles: { primary: ['chest'], secondary: ['shoulders', 'triceps'] },
     how: ['วางมือกว้างกว่าไหล่เล็กน้อย คุกเข่าหรือดันผนังก็ได้', 'ลำตัวตรง ลดอกลงหาพื้น', 'ดันกลับขึ้น'],
   },
   'bottle-row': {
-    name: 'ดึงขวดน้ำ (Bottle Row)', emoji: '🧴', muscles: { primary: ['lats', 'midback'], secondary: ['biceps'] },
+    name: 'ดึงขวดน้ำ (Bottle Row)', muscles: { primary: ['lats', 'midback'], secondary: ['biceps'] },
     how: ['ถือขวดน้ำ 1.5 ลิตรสองมือ ก้มตัวไปข้างหน้าหลังตรง', 'ดึงศอกขึ้นไปหาสะโพก บีบสะบัก', 'ลดลงช้าๆ'],
   },
   'bottle-press': {
-    name: 'ดันขวดน้ำเหนือศีรษะ', emoji: '🙆', muscles: { primary: ['shoulders'], secondary: ['triceps'] },
+    name: 'ดันขวดน้ำเหนือศีรษะ', muscles: { primary: ['shoulders'], secondary: ['triceps'] },
     how: ['ยืนหรือนั่งถือขวดน้ำระดับหู', 'ดันขึ้นเหนือศีรษะ', 'ลดลงช้าๆ'],
   },
   plank: {
-    name: 'แพลงก์ (Plank)', emoji: '🪵', muscles: { primary: ['abs'], secondary: ['shoulders', 'lowerback'] },
+    name: 'แพลงก์ (Plank)', muscles: { primary: ['abs'], secondary: ['shoulders', 'lowerback'] },
     how: ['วางศอกใต้ไหล่ เหยียดขาไปข้างหลัง (คุกเข่าได้)', 'เกร็งหน้าท้อง ลำตัวตรงเป็นไม้กระดาน', 'ค้างไว้ 20–40 วินาทีต่อเซ็ต'],
   },
 };
@@ -249,27 +249,27 @@ export const HOME_EXERCISES = {
 // Single-card sessions for walking, running and stretching days.
 export const ROUTINES = {
   'walk-light': {
-    name: 'เดินเร็ว 30 นาที', emoji: '🚶', minutes: 30,
+    name: 'เดินเร็ว 30 นาที', minutes: 30,
     how: ['เดินช้าๆ วอร์มอัพ 5 นาที', 'เดินเร็วจนหายใจแรงขึ้นแต่ยังคุยได้ 20 นาที', 'เดินช้าลงคูลดาวน์ 5 นาที'],
   },
   'walk-hard': {
-    name: 'เดินเร็วยาว 45 นาที', emoji: '🥾', minutes: 45,
+    name: 'เดินเร็วยาว 45 นาที', minutes: 45,
     how: ['เดินช้าๆ วอร์มอัพ 5 นาที', 'เดินเร็ว 35 นาที มีทางชันหรือบันไดยิ่งดี', 'เดินช้าลงคูลดาวน์ 5 นาที'],
   },
   'run-light': {
-    name: 'วิ่งเหยาะๆ 20 นาที', emoji: '🏃', minutes: 20,
+    name: 'วิ่งเหยาะๆ 20 นาที', minutes: 20,
     how: ['เดินเร็ววอร์มอัพ 5 นาที', 'วิ่งเหยาะๆ สบายๆ 10–15 นาที วิ่งไปคุยไปได้', 'เดินคูลดาวน์ 5 นาที'],
   },
   'run-hard': {
-    name: 'วิ่งสลับเร็ว-ช้า 25 นาที', emoji: '⚡', minutes: 25,
+    name: 'วิ่งสลับเร็ว-ช้า 25 นาที', minutes: 25,
     how: ['เดินเร็ววอร์มอัพ 5 นาที', 'วิ่งเร็ว 1 นาที สลับเดิน 1 นาที ทำ 8 รอบ', 'เดินคูลดาวน์ 4 นาที'],
   },
   meditate: {
-    name: 'นั่งสมาธิ + ยืดเหยียดเบาๆ', emoji: '🪷', minutes: 15,
-    how: ['นั่งสบายๆ หลังตรง หลับตา หายใจเข้า "พุท" หายใจออก "โธ" 5 นาที', 'ยืดคอ ไหล่ และหลังช้าๆ ท่าละ 30 วินาที', 'ท่าแมว-วัว 1 นาที แล้วนอนราบหายใจลึกๆ อีก 3 นาที', 'จบด้วยการแผ่เมตตาให้ตัวเองสักนิด 🙏'],
+    name: 'นั่งสมาธิ + ยืดเหยียดเบาๆ', minutes: 15,
+    how: ['นั่งสบายๆ หลังตรง หลับตา หายใจเข้า "พุท" หายใจออก "โธ" 5 นาที', 'ยืดคอ ไหล่ และหลังช้าๆ ท่าละ 30 วินาที', 'ท่าแมว-วัว 1 นาที แล้วนอนราบหายใจลึกๆ อีก 3 นาที', 'จบด้วยการแผ่เมตตาให้ตัวเองสักนิด'],
   },
   mobility: {
-    name: 'ยืดเส้นสบายๆ 10 นาที', emoji: '🧘', minutes: 10,
+    name: 'ยืดเส้นสบายๆ 10 นาที', minutes: 10,
     how: ['ท่าแมว-วัว (คุกเข่า โก่งหลังสลับแอ่นหลัง) 1 นาที', 'ยืดสะโพกด้านหน้า ข้างละ 30 วินาที', 'ยืดอกที่ขอบประตู 30 วินาที', 'ยืดต้นขาด้านหลัง ข้างละ 30 วินาที', 'เดินเล่นช้าๆ 5 นาที'],
   },
 };

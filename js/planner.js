@@ -4,10 +4,10 @@
 import { parseKey, addDays, toMinutes, fromMinutes } from './health.js';
 
 export const GOALS = {
-  lose: { label: 'ลดน้ำหนัก', emoji: '🥗' },
-  strong: { label: 'แข็งแรงขึ้น', emoji: '💪' },
-  fit: { label: 'ฟิตทั่วไป', emoji: '🌿' },
-  habit: { label: 'อยากมีวินัย', emoji: '📿' },
+  lose: { label: 'ลดน้ำหนัก' },
+  strong: { label: 'แข็งแรงขึ้น' },
+  fit: { label: 'ฟิตทั่วไป' },
+  habit: { label: 'อยากมีวินัย' },
 };
 
 export const SLOTS = {
@@ -18,10 +18,10 @@ export const SLOTS = {
 };
 
 export const ACTIVITIES = {
-  gym: { label: 'ยิม', emoji: '🏋️' },
-  home: { label: 'เวทเบาที่บ้าน', emoji: '🏠' },
-  run: { label: 'วิ่ง', emoji: '🏃' },
-  walk: { label: 'เดิน', emoji: '🚶' },
+  gym: { label: 'ยิม' },
+  home: { label: 'เวทเบาที่บ้าน' },
+  run: { label: 'วิ่ง' },
+  walk: { label: 'เดิน' },
 };
 
 export const FOCUS = {

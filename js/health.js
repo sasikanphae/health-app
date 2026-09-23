@@ -84,9 +84,9 @@ export const SLEEP_HOURS = [
 
 // `mood` drives the mascot: bright / normal / sleepy.
 export const LEVELS = {
-  hard: { label: 'สดใส พร้อมลุย', icon: '✨', mood: 'bright' },
-  light: { label: 'ปกติ ค่อยๆ ไป', icon: '🍵', mood: 'normal' },
-  rest: { label: 'ง่วง ขอพักหน่อย', icon: '😴', mood: 'sleepy' },
+  hard: { label: 'สดใส พร้อมลุย', icon: 'sun', mood: 'bright' },
+  light: { label: 'ปกติ ค่อยๆ ไป', icon: 'leaf', mood: 'normal' },
+  rest: { label: 'ง่วง ขอพักหน่อย', icon: 'moon', mood: 'sleepy' },
 };
 
 const WEIGHTS = { sleepHours: 25, sleepQuality: 15, soreness: 20, stress: 15, energy: 25 };

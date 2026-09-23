@@ -3,16 +3,16 @@
 import { addDays } from './health.js';
 
 export const ACTIVITY_LEVELS = {
-  sedentary: { label: 'นั่งเป็นส่วนใหญ่', hint: 'ทำงานโต๊ะ เดินน้อย', emoji: '🪑', factor: 1.2, steps: 5000 },
-  light: { label: 'ขยับบ้าง', hint: 'เดินไปมาระหว่างวัน', emoji: '🚶', factor: 1.375, steps: 7000 },
-  moderate: { label: 'ค่อนข้างแอคทีฟ', hint: 'ยืนหรือเดินบ่อย', emoji: '🛵', factor: 1.55, steps: 8000 },
-  active: { label: 'แอคทีฟมาก', hint: 'งานใช้แรง เดินทั้งวัน', emoji: '🏗️', factor: 1.725, steps: 10000 },
+  sedentary: { label: 'นั่งเป็นส่วนใหญ่', hint: 'ทำงานโต๊ะ เดินน้อย', factor: 1.2, steps: 5000 },
+  light: { label: 'ขยับบ้าง', hint: 'เดินไปมาระหว่างวัน', factor: 1.375, steps: 7000 },
+  moderate: { label: 'ค่อนข้างแอคทีฟ', hint: 'ยืนหรือเดินบ่อย', factor: 1.55, steps: 8000 },
+  active: { label: 'แอคทีฟมาก', hint: 'งานใช้แรง เดินทั้งวัน', factor: 1.725, steps: 10000 },
 };
 
 export const WEIGHT_GOALS = {
-  lose: { label: 'ลดน้ำหนัก', emoji: '📉', delta: -500 },
-  keep: { label: 'คงที่', emoji: '⚖️', delta: 0 },
-  gain: { label: 'เพิ่มน้ำหนัก/กล้าม', emoji: '📈', delta: 300 },
+  lose: { label: 'ลดน้ำหนัก', delta: -500 },
+  keep: { label: 'คงที่', delta: 0 },
+  gain: { label: 'เพิ่มน้ำหนัก/กล้าม', delta: 300 },
 };
 
 export const SEXES = { female: 'หญิง', male: 'ชาย' };

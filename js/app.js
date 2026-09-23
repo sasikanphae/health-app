@@ -13,6 +13,7 @@ import {
   MACHINES, ALTERNATIVES, ROUTINES, MUSCLES, BODY_PARTS, exerciseInfo, machineById,
 } from './gym-data.js';
 import { mascot, machineArt, muscleMap } from './art.js';
+import { icon, moodIcon } from './icons.js';
 import {
   ACTIVITY_LEVELS, WEIGHT_GOALS, SEXES, LIMITS, bmi, bmiInfo, calorieTarget, waterGoal, stepGoal,
   logWeight, latestWeight, weightTrend, isValidBody, defaultWeightGoal, daysSince,
@@ -191,11 +192,44 @@ function sessionTitle(s) {
   return ROUTINES[sessionItems(s)[0].id]?.name ?? 'ออกกำลังกาย';
 }
 
-function sessionEmoji(s) {
-  if (!s) return '🌙';
-  if (s.adjusted === 'holy') return '🪷';
-  if (s.intensity === 'rest' || s.activity === 'mobility') return '🧘';
-  return { gym: '🏋️', home: '🏠', run: '🏃', walk: '🚶' }[s.activity] ?? '✨';
+function sessionIconName(s) {
+  if (!s) return 'moon';
+  if (s.adjusted === 'holy') return 'meditate';
+  if (s.intensity === 'rest' || s.activity === 'mobility') return 'stretch';
+  return { gym: 'dumbbell', home: 'house', run: 'run', walk: 'walk' }[s.activity] ?? 'leaf';
+}
+const sessionEmoji = (s, size = 18) => icon(sessionIconName(s), { size });
+
+// Line icons for the option lists (the data files carry labels only).
+const OPTION_ICONS = {
+  goal: { lose: 'scale', strong: 'dumbbell', fit: 'leaf', habit: 'target' },
+  slot: { morning: 'sunrise', noon: 'sun', evening: 'sunset', night: 'moon' },
+  activities: { gym: 'dumbbell', home: 'house', run: 'run', walk: 'walk' },
+  'food.mode': { cook: 'pan', buy: 'bag', mix: 'shuffle' },
+  'body.activity': { sedentary: 'house', light: 'walk', moderate: 'steps', active: 'run' },
+  'body.weightGoal': { lose: 'scale', keep: 'leaf', gain: 'dumbbell' },
+};
+const MEAL_ICON = { cook: 'pan', shop: 'meal', store: 'bag' };
+
+function exerciseIconName(info) {
+  const id = info.id ?? '';
+  if (id.startsWith('walk')) return 'walk';
+  if (id.startsWith('run')) return 'run';
+  if (id === 'meditate') return 'meditate';
+  if (id === 'mobility') return 'stretch';
+  if (info.type === 'timed' || info.type === 'cardio') return 'treadmill';
+  return 'dumbbell';
+}
+
+// Thin SVG progress ring (score, rest timer). p is 0–100.
+function ring(p, text, size = 120) {
+  const r = 44;
+  const c = 2 * Math.PI * r;
+  const off = c * (1 - Math.max(0, Math.min(100, p)) / 100);
+  return `<svg class="ring" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true">
+    <circle class="track" cx="50" cy="50" r="${r}"/>
+    <circle class="value" cx="50" cy="50" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}" transform="rotate(-90 50 50)"/>
+    <text x="50" y="50" text-anchor="middle" dominant-baseline="central" font-size="${text.length > 3 ? 20 : 26}">${text}</text></svg>`;
 }
 
 function intensityChip(s) {
@@ -239,7 +273,7 @@ function addWater(delta) {
   if (delta > 0) {
     if (day.water === goal) sfx.bell();
     else sfx.knock();
-    toast(day.water === goal ? `ครบ ${goal} แก้ว! น้ำบุญเต็มแก้ว 💧` : `แก้วที่ ${day.water} แล้ว ${cheer()}`, () => addWater(-1));
+    toast(day.water === goal ? `ครบ ${goal} แก้ว! น้ำบุญเต็มแก้ว` : `แก้วที่ ${day.water} แล้ว ${cheer()}`, () => addWater(-1));
   }
 }
 
@@ -253,7 +287,7 @@ function setMeal(slot, status) {
   save();
   render();
   sfx.knock();
-  toast(status === 'plan' ? `กินตามแผนแล้ว ${cheer()}` : 'กินอย่างอื่นก็โอเค แมวไม่ว่าเลย 👌', () => {
+  toast(status === 'plan' ? `กินตามแผนแล้ว ${cheer()}` : 'กินอย่างอื่นก็โอเค แมวไม่ว่าเลย', () => {
     if (prev) editDay(key).meals[slot] = prev;
     else delete editDay(key).meals[slot];
     save();
@@ -286,7 +320,7 @@ function completeWorkout(session) {
   save();
   render();
   sfx.bell();
-  toast('ออกกำลังกายเสร็จแล้ว! บุญพุ่ง 🎉', () => {
+  toast('ออกกำลังกายเสร็จแล้ว! บุญพุ่ง', () => {
     editDay(key).workout = null;
     save();
     render();
@@ -406,7 +440,7 @@ function renderTimer() {
     stopTimer();
     navigator.vibrate?.([200, 100, 200]);
     beep();
-    toast(done ? 'ครบเวลาแล้ว เก่งมาก! 🎉' : 'หมดเวลาพัก ลุยเซ็ตต่อไป! 🐾');
+    toast(done ? 'ครบเวลาแล้ว เก่งมาก!' : 'หมดเวลาพัก ลุยเซ็ตต่อไป!');
     done?.();
     return;
   }
@@ -414,7 +448,7 @@ function renderTimer() {
   const text = s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}`;
   el.hidden = false;
   el.innerHTML = `
-    <div class="timer-ring" style="--p:${(left / t.total) * 100}"><b>${text}</b></div>
+    ${ring((left / t.total) * 100, text, 64)}
     <div class="grow"><div class="head">${esc(t.label)}</div><div class="muted small">หายใจลึกๆ ดื่มน้ำสักอึก</div></div>
     <button class="btn sm soft" data-act="timerAdd">+15 วิ</button>
     <button class="btn sm primary" data-act="timerSkip">ข้าม</button>`;
@@ -553,9 +587,9 @@ function bodyStep(s, { top, opt }) {
         `<button class="chip" data-act="obPick" data-field="body.sex" data-v="${k}" aria-pressed="${d.body.sex === k}">${l}</button>`).join('')}</div></div>
     </div>
     <div class="field-label">ในชีวิตประจำวัน ขยับตัวแค่ไหน</div>
-    <div class="opts two">${Object.entries(ACTIVITY_LEVELS).map(([k, a]) => opt('body.activity', k, a.label, a.emoji, a.hint)).join('')}</div>
+    <div class="opts two">${Object.entries(ACTIVITY_LEVELS).map(([k, a]) => opt('body.activity', k, a.label, null, a.hint)).join('')}</div>
     <div class="field-label">อยากให้น้ำหนัก</div>
-    <div class="opts">${Object.entries(WEIGHT_GOALS).map(([k, g]) => opt('body.weightGoal', k, g.label, g.emoji)).join('')}</div>
+    <div class="opts">${Object.entries(WEIGHT_GOALS).map(([k, g]) => opt('body.weightGoal', k, g.label)).join('')}</div>
     <div class="sheet-foot">${foot}</div>`;
 }
 
@@ -567,9 +601,12 @@ function renderOnboard(s) {
     : '';
   const cat = (mood, size = 120) => `<div class="sheet-mascot">${mascot(mood, { size })}</div>`;
   const value = (field) => field.split('.').reduce((o, k) => o?.[k], d);
-  const opt = (field, v, label, emoji, sub = '') => `
+  const opt = (field, v, label, _unused, sub = '') => {
+    const ic = OPTION_ICONS[field]?.[v];
+    return `
     <button class="opt" data-act="obPick" data-field="${field}" data-v="${v}" aria-pressed="${value(field) === v}">
-      <span class="emo">${emoji}</span><span>${label}${sub ? `<small>${sub}</small>` : ''}</span></button>`;
+      ${ic ? `<span class="emo">${icon(ic)}</span>` : ''}<span>${label}${sub ? `<small>${sub}</small>` : ''}</span></button>`;
+  };
   const multi = (field, v, label) =>
     `<button class="chip" data-act="obToggle" data-field="${field}" data-v="${v}" aria-pressed="${value(field).includes(v)}">${label}</button>`;
 
@@ -579,13 +616,13 @@ function renderOnboard(s) {
         <div class="question">สวัสดีเหมียว~</div>
         <p class="center">ฉันชื่อ <b>เหมียวสมาธิ</b> จะช่วยจัดตารางออกกำลังกายกับอาหารให้เอง<br>ขอถามสั้นๆ 5 เรื่อง ใช้เวลาราว 1 นาที</p>
         <div class="sheet-foot">
-          <button class="btn primary big block" data-act="obNext">เริ่มเลย 🐾</button>
+          <button class="btn primary big block" data-act="obNext">เริ่มเลย</button>
           <button class="btn ghost block" data-act="obSkip">ข้ามไปก่อน ใช้ค่าเริ่มต้น</button>
         </div>`;
     case 1:
       return `${top}${cat('normal', 100)}
         <div class="question">อยากได้อะไรจากการออกกำลังกาย?</div>
-        <div class="opts">${Object.entries(GOALS).map(([k, g]) => opt('goal', k, g.label, g.emoji)).join('')}</div>`;
+        <div class="opts">${Object.entries(GOALS).map(([k, g]) => opt('goal', k, g.label)).join('')}</div>`;
     case 2:
       return bodyStep(s, { top, opt });
     case 3:
@@ -594,7 +631,7 @@ function renderOnboard(s) {
         <div class="field-label">วันที่พอว่าง (เลือกได้หลายวัน)</div>
         <div class="weekdays">${WEEK_ORDER.map((n) => multi('days', n, WEEKDAYS[n])).join('')}</div>
         <div class="field-label">ช่วงเวลาที่สะดวก</div>
-        <div class="opts two">${Object.entries(SLOTS).map(([k, sl]) => opt('slot', k, sl.label, { morning: '🌅', noon: '☀️', evening: '🌇', night: '🌙' }[k], `${sl.hint} · ${sl.time}`)).join('')}</div>
+        <div class="opts two">${Object.entries(SLOTS).map(([k, sl]) => opt('slot', k, sl.label, null, `${sl.hint} · ${sl.time}`)).join('')}</div>
         <div class="sheet-foot"><button class="btn primary big block" data-act="obNext" ${d.days.length ? '' : 'disabled'}>ต่อไป</button></div>`;
     case 4:
       return `${top}${cat('bright', 100)}
@@ -602,20 +639,20 @@ function renderOnboard(s) {
         <p class="center muted">เลือกได้หลายอย่าง</p>
         <div class="opts two">${Object.entries(ACTIVITIES).map(([k, a]) => `
           <button class="opt" data-act="obToggle" data-field="activities" data-v="${k}" aria-pressed="${d.activities.includes(k)}">
-            <span class="emo">${a.emoji}</span><span>${a.label}</span></button>`).join('')}</div>
+            <span class="emo">${icon(OPTION_ICONS.activities[k])}</span><span>${a.label}</span></button>`).join('')}</div>
         <div class="sheet-foot"><button class="btn primary big block" data-act="obNext" ${d.activities.length ? '' : 'disabled'}>ต่อไป</button></div>`;
     case 5:
       return `${top}
         <div class="question">เรื่องกินล่ะ?</div>
         <div class="field-label">ส่วนใหญ่ได้อาหารจากไหน</div>
-        <div class="opts">${Object.entries(FOOD_MODES).map(([k, m]) => opt('food.mode', k, m.label, m.emoji)).join('')}</div>
+        <div class="opts">${Object.entries(FOOD_MODES).map(([k, m]) => opt('food.mode', k, m.label)).join('')}</div>
         <div class="field-label">แพ้อะไรไหม</div>
         <div class="chips">${Object.entries(ALLERGIES).map(([k, l]) => multi('food.allergies', k, l)).join('')}</div>
         <div class="field-label">ไม่กินอะไร</div>
         <div class="chips">${Object.entries(AVOID).map(([k, l]) => multi('food.avoid', k, l)).join('')}</div>
         <div class="field-label">งบต่อมื้อ</div>
-        <div class="opts">${Object.entries(BUDGETS).map(([k, b]) => opt('food.budget', k, b.label, { low: '🪙', mid: '💰', high: '💎' }[k], b.hint)).join('')}</div>
-        <div class="sheet-foot"><button class="btn primary big block" data-act="obFinish">เสร็จแล้ว ✨</button></div>`;
+        <div class="opts">${Object.entries(BUDGETS).map(([k, b]) => opt('food.budget', k, b.label, null, b.hint)).join('')}</div>
+        <div class="sheet-foot"><button class="btn primary big block" data-act="obFinish">เสร็จแล้ว</button></div>`;
     default: {
       const plan = planWeek({ profile: state.profile, today: todayKey(), days: state.days });
       const n = plan.week.filter((w) => w.session).length;
@@ -623,18 +660,18 @@ function renderOnboard(s) {
         <div class="question">เรียบร้อยเหมียว!</div>
         <p class="center">แมวจัดตารางให้แล้ว สัปดาห์นี้ออกกำลังกาย <b>${n} วัน</b><br>สลับหนัก-เบา-พัก พร้อมเมนูอาหารทุกมื้อ</p>
         <p class="center muted small">พลาดวันไหนก็ไม่ต้องห่วง แมวจะย้ายตารางให้เอง</p>
-        <div class="sheet-foot"><button class="btn primary big block" data-act="back">ไปดูวันนี้กัน 🪷</button></div>`;
+        <div class="sheet-foot"><button class="btn primary big block" data-act="back">ไปดูวันนี้กัน</button></div>`;
     }
   }
 }
 
 // ---------- morning check-in ----------
 const CHECKIN_STEPS = [
-  { field: 'sleepHours', q: 'เมื่อคืนนอนไปกี่ชั่วโมง?', options: SLEEP_HOURS.map((s) => ({ value: s.id, emoji: '🌙', label: s.label })) },
-  { field: 'sleepQuality', q: 'หลับสบายแค่ไหน?', options: [{ value: 1, emoji: '😣', label: 'หลับๆ ตื่นๆ' }, { value: 2, emoji: '😐', label: 'พอใช้' }, { value: 3, emoji: '😴', label: 'หลับสบายมาก' }] },
+  { field: 'sleepHours', q: 'เมื่อคืนนอนไปกี่ชั่วโมง?', options: SLEEP_HOURS.map((s) => ({ value: s.id, label: s.label })) },
+  { field: 'sleepQuality', q: 'หลับสบายแค่ไหน?', options: [{ value: 1, label: 'หลับๆ ตื่นๆ' }, { value: 2, label: 'พอใช้' }, { value: 3, label: 'หลับสบายมาก' }] },
   { field: 'soreness', q: 'ตอนนี้เมื่อยตรงไหนบ้าง?' },
-  { field: 'stress', q: 'ความเครียดตอนนี้?', options: [{ value: 1, emoji: '😌', label: 'สบายมาก' }, { value: 2, emoji: '🙂', label: 'นิดหน่อย' }, { value: 3, emoji: '😐', label: 'ปานกลาง' }, { value: 4, emoji: '😟', label: 'ค่อนข้างมาก' }, { value: 5, emoji: '😖', label: 'มากๆ' }] },
-  { field: 'energy', q: 'พลังงานตอนนี้?', options: [{ value: 1, emoji: '🪫', label: 'หมดแรง' }, { value: 2, emoji: '😪', label: 'ต่ำ' }, { value: 3, emoji: '😐', label: 'กลางๆ' }, { value: 4, emoji: '🙂', label: 'ดี' }, { value: 5, emoji: '⚡', label: 'เต็มหลอด' }] },
+  { field: 'stress', q: 'ความเครียดตอนนี้?', options: [{ value: 1, label: 'สบายมาก' }, { value: 2, label: 'นิดหน่อย' }, { value: 3, label: 'ปานกลาง' }, { value: 4, label: 'ค่อนข้างมาก' }, { value: 5, label: 'มากๆ' }] },
+  { field: 'energy', q: 'พลังงานตอนนี้?', options: [{ value: 1, label: 'หมดแรง' }, { value: 2, label: 'ต่ำ' }, { value: 3, label: 'กลางๆ' }, { value: 4, label: 'ดี' }, { value: 5, label: 'เต็มหลอด' }] },
 ];
 
 function openCheckin() {
@@ -659,9 +696,9 @@ function renderCheckin(s) {
     const adj = t.session?.adjusted ? `<p class="note">${ADJUST_TEXT[t.session.adjusted]}</p>` : '';
     return `${sheetTop('', { close: '✕' })}
       <div class="sheet-mascot">${mascot(lv.mood, { size: 150 })}</div>
-      <div class="center lvl-${c.level}">
-        <div class="score-ring" style="--p:${c.score}"><b>${c.score}</b></div>
-        <div class="question" style="margin:4px 0">${lv.icon} ${lv.label}</div>
+      <div class="center">
+        ${ring(c.score, String(c.score), 112)}
+        <div class="question" style="margin:12px 0 4px">${lv.label}</div>
       </div>
       <div class="card">
         <p>${LEVEL_ADVICE[c.level]}</p>
@@ -672,7 +709,7 @@ function renderCheckin(s) {
       </div>
       <p class="muted small center">เป็นคำแนะนำคร่าวๆ ฟังร่างกายตัวเองเป็นหลัก ถ้าเจ็บหรือผิดปกติควรปรึกษาแพทย์</p>
       <div class="sheet-foot">
-        <button class="btn primary big block" data-act="back">เข้าใจแล้ว 🐾</button>
+        <button class="btn primary big block" data-act="back">เข้าใจแล้ว</button>
         <button class="btn ghost block" data-act="ciRestart">แก้คำตอบ</button>
       </div>`;
   }
@@ -692,8 +729,10 @@ function renderCheckin(s) {
     foot = `<div class="sheet-foot"><button class="btn primary big block" data-act="ciNext">${any ? 'ต่อไป' : 'ไม่เมื่อยเลย · ต่อไป'}</button></div>`;
   } else {
     const cur = s.answers[step.field];
-    content = `<div class="opts">${step.options.map((o) => `
-      <button class="opt" data-act="ciPick" data-v="${o.value}" aria-pressed="${o.value === cur}"><span class="emo">${o.emoji}</span>${o.label}</button>`).join('')}</div>`;
+    const faces = { sleepQuality: (v) => [0, 2, 3, 5][v], stress: (v) => 6 - v, energy: (v) => v }[step.field];
+    const withIc = step.options.map((o) => ({ ...o, ic: faces ? moodIcon(faces(o.value), { size: 24 }) : '' }));
+    content = `<div class="opts">${withIc.map((o) => `
+      <button class="opt" data-act="ciPick" data-v="${o.value}" aria-pressed="${o.value === cur}">${o.ic ? `<span class="emo">${o.ic}</span>` : ''}<span>${o.label}</span></button>`).join('')}</div>`;
   }
   return `
     <div class="sheet-top">
@@ -712,7 +751,7 @@ function thumbFor(id) {
   if (info.kind === 'machine') {
     return ui.photoUrls[id] ? `<img src="${ui.photoUrls[id]}" alt="">` : machineArt(id);
   }
-  return info.emoji ?? '🔁';
+  return icon(exerciseIconName(info), { size: 28 });
 }
 
 const infoName = (info) => info.th ?? info.name;
@@ -720,12 +759,12 @@ const infoName = (info) => info.th ?? info.name;
 function renderSession() {
   const t = computeToday();
   const s = t.session;
-  if (!s) return `${sheetTop('วันนี้')}<p class="center">วันนี้ไม่มีโปรแกรม พักได้เต็มที่เลย 🌙</p>`;
+  if (!s) return `${sheetTop('วันนี้')}<p class="center">วันนี้ไม่มีโปรแกรม พักได้เต็มที่เลย</p>`;
   const items = sessionItems(s);
   const isGym = s.activity === 'gym';
   const doneCount = items.filter((i) => itemDone(t.day, i, s)).length;
   const prep = isGym ? `
-    <details class="card"><summary class="head">🎒 ของครบยัง? (${state.checklist.filter((c) => t.day.prep.includes(c.id)).length}/${state.checklist.length})</summary>
+    <details class="card"><summary class="head">ของครบยัง? (${state.checklist.filter((c) => t.day.prep.includes(c.id)).length}/${state.checklist.length})</summary>
       ${state.checklist.map((c) => {
         const on = t.day.prep.includes(c.id);
         return `<button class="check" role="checkbox" aria-checked="${on}" data-act="prepToggle" data-id="${c.id}"><span class="box">${on ? '✓' : ''}</span><span class="label">${esc(c.text)}</span></button>`;
@@ -744,7 +783,7 @@ function renderSession() {
       <span class="thumb">${thumbFor(id)}</span>
       <span class="grow"><span class="num">${i + 1}.</span> <b>${esc(infoName(info))}</b><br>
         <span class="muted small">${rx.timed ? rx.text : `${rx.sets} เซ็ต × ${rx.reps}`}</span>${role}${swapped}</span>
-      <span class="head">${done ? '✅' : progress}</span>
+      <span class="head">${done ? '' : progress}</span>
     </button>`;
   }).join('');
 
@@ -762,7 +801,7 @@ function renderSession() {
     <p class="muted small">เล่นตามลำดับจากบนลงล่าง แตะเพื่อดูวิธีเล่น · ทำแล้ว ${doneCount}/${items.length}</p>
     ${list}
     <div class="sheet-foot">
-      ${t.done ? '<p class="center head">เสร็จแล้ววันนี้ เก่งมาก 🎉</p>'
+      ${t.done ? '<p class="center head">เสร็จแล้ววันนี้ เก่งมาก</p>'
     : `<button class="btn primary big block" data-act="finishWorkout">${doneCount === items.length ? 'จบวันนี้ ✓' : 'พอแค่นี้ก่อน (ก็เก่งแล้ว) ✓'}</button>`}
     </div>`;
 }
@@ -799,12 +838,12 @@ function renderExercise(sheet) {
     const photo = ui.photoUrls[id];
     picture = `<div class="art-box">${photo ? `<img src="${photo}" alt="รูปเครื่อง ${esc(machine.th)} ในยิมของฉัน">` : machineArt(id)}</div>
       <div class="photo-actions">
-        <label class="btn soft sm">📷 ${photo ? 'เปลี่ยนรูป' : 'ใส่รูปเครื่องจริงในยิม'}
+        <label class="btn soft sm">${photo ? 'เปลี่ยนรูป' : 'ใส่รูปเครื่องจริงในยิม'}
           <input type="file" accept="image/*" capture="environment" data-change="photo" data-id="${id}" hidden></label>
         ${photo ? `<button class="btn ghost sm" data-act="photoDelete" data-id="${id}">ใช้ภาพลายเส้น</button>` : ''}
       </div>`;
   } else {
-    picture = `<div class="art-box" style="font-size:4rem">${info.emoji ?? '🔁'}</div>`;
+    picture = `<div class="art-box">${icon(exerciseIconName(info), { size: 56 })}</div>`;
   }
 
   // --- sets × reps, scaled by today's readiness (only inside today's workout) ---
@@ -816,9 +855,9 @@ function renderExercise(sheet) {
     if (rx.timed) {
       rxCard = `<div class="card rx">
         <div class="rx-main">${rx.minutes} นาที</div><p>${esc(rx.text)}</p>
-        ${complete ? `<p class="head">เสร็จแล้ว ✅</p>${nextButton(t, baseId)}` : `
+        ${complete ? `<p class="head">เสร็จแล้ว</p>${nextButton(t, baseId)}` : `
           <div class="stack">
-            <button class="btn primary big block" data-act="timedStart" data-id="${baseId}" data-min="${rx.minutes}">⏱️ เริ่มจับเวลา ${rx.minutes} นาที</button>
+            <button class="btn primary big block" data-act="timedStart" data-id="${baseId}" data-min="${rx.minutes}">เริ่มจับเวลา ${rx.minutes} นาที</button>
             <button class="btn soft block" data-act="finishSet" data-id="${baseId}">เสร็จแล้ว ✓</button>
           </div>`}
       </div>`;
@@ -829,7 +868,7 @@ function renderExercise(sheet) {
         <div class="rx-main">${rx.sets} เซ็ต × ${rx.reps}</div>
         <p class="small">${rx.load} · พักเซ็ตละ ${rx.rest} วินาที</p>
         <div class="sets">${Array.from({ length: rx.sets }, (_, i) => `<span class="${i < n ? 'on' : ''}">${i < n ? '✓' : i + 1}</span>`).join('')}</div>
-        ${complete ? `<p class="head">ครบแล้ว! 🎉</p>${nextButton(t, baseId)}`
+        ${complete ? `<p class="head">ครบแล้ว!</p>${nextButton(t, baseId)}`
     : `<button class="btn primary big block" data-act="finishSet" data-id="${baseId}">จบเซ็ตที่ ${n + 1} ✓ แล้วเริ่มพัก</button>`}
         ${n > 0 ? `<button class="btn ghost sm" data-act="undoSet" data-id="${baseId}">ลบเซ็ตล่าสุด</button>` : ''}
       </div>`;
@@ -905,9 +944,9 @@ function renderExercise(sheet) {
       <div class="steps-h">1. ปรับเครื่อง</div>${ol(machine.setup)}
       <div class="steps-h">2. ท่าเริ่มต้น</div>${ol(machine.start)}
       <div class="steps-h">3. การเคลื่อนไหว</div>${ol(machine.move)}
-      <div class="steps-h">4. การหายใจ</div><p>🌬️ ${machine.breath}</p></div>
+      <div class="steps-h">4. การหายใจ</div><p>${machine.breath}</p></div>
     <div class="card"><h2>ข้อผิดพลาดที่พบบ่อย</h2>
-      ${machine.mistakes.map((x) => `<div class="mistake"><span>❌ ${x.wrong}</span><span>✅ ${x.fix}</span></div>`).join('')}</div>`
+      ${machine.mistakes.map((x) => `<div class="mistake"><span>${x.wrong}</span><span>${x.fix}</span></div>`).join('')}</div>`
     : `<div class="card"><h2>วิธีทำ</h2>${info.equip ? `<p class="muted small">อุปกรณ์: ${info.equip}</p>` : ''}${ol(info.how)}</div>`;
 
   // --- alternatives when the machine is taken ---
@@ -916,7 +955,7 @@ function renderExercise(sheet) {
     alts = `<div class="card"><p>กำลังเล่นท่าทดแทนของ <b>${parent.th}</b></p>
       <button class="btn soft block" data-act="unswap" data-id="${baseId}">กลับไปใช้${parent.th}</button></div>`;
   } else if (machine) {
-    alts = `<div class="card"><button class="btn soft block" data-act="toggleAlts" aria-expanded="${ui.showAlts}">🔁 เครื่องไม่ว่าง? ดูท่าทดแทน</button>
+    alts = `<div class="card"><button class="btn soft block" data-act="toggleAlts" aria-expanded="${ui.showAlts}">เครื่องไม่ว่าง? ดูท่าทดแทน</button>
       ${ui.showAlts ? machine.alternatives.map((aid) => {
         const a = ALTERNATIVES[aid];
         return `<div class="alt"><b>${a.name}</b><div class="muted small">อุปกรณ์: ${a.equip}</div>${ol(a.how)}
@@ -955,7 +994,7 @@ function saveMachine(form, { quiet = false } = {}) {
   state.machines[id] = { seat, weight, note, updatedAt: Date.now() };
   save();
   if (!quiet) {
-    toast('จดไว้ให้แล้ว ครั้งหน้าไม่ต้องจำ 📝');
+    toast('จดไว้ให้แล้ว ครั้งหน้าไม่ต้องจำ');
     renderSheet();
     render();
   }
@@ -992,7 +1031,7 @@ function renderToday() {
     sfx.bless();
   }
   const glasses = Array.from({ length: Math.max(goal, t.day.water) }, (_, i) =>
-    `<span class="${i < t.day.water ? 'full' : ''}">💧</span>`).join('');
+    `<i class="${i < t.day.water ? 'full' : ''}"></i>`).join('');
   const hasGym = t.p.activities.includes('gym');
 
   $('#view-today').innerHTML = `
@@ -1002,48 +1041,51 @@ function renderToday() {
         <div class="bubble">${msg}</div>
         <div class="hero-meta">
           <span class="muted small">${thaiDate(t.key)}</span>
-          ${t.day.checkin ? `<span class="lvl-chip lvl-${t.day.checkin.level}">${LEVELS[t.day.checkin.level].icon} ${t.day.checkin.score}</span>` : ''}
-          <span class="badge gold">ทำแล้ว ${done}/${items.length}</span>
+          ${t.day.checkin ? `<span class="lvl-chip">ความพร้อม ${t.day.checkin.score}</span>` : ''}
+          <span class="badge">ทำแล้ว ${done}/${items.length}</span>
         </div>
       </div>
     </div>
+    <div class="card quick">
     <div class="water">
+      <span class="label-ic">${icon('drop')}</span>
       <span class="grow">
         <span class="glasses" aria-hidden="true">${glasses}</span>
-        <span class="small muted">💧 ${t.day.water}/${goal} แก้ว${pers?.water.extra ? ` · วันนี้ออกกำลังกาย +${pers.water.extra} มล.` : ''}</span>
+        <span class="small muted">${t.day.water}/${goal} แก้ว${pers?.water.extra ? ` · วันนี้ออกกำลังกาย +${pers.water.extra} มล.` : ''}</span>
       </span>
       <button class="icon-btn" data-act="water" data-n="-1" aria-label="ลบ 1 แก้ว" ${t.day.water ? '' : 'disabled'}>−</button>
       <button class="btn primary" data-act="water" data-n="1">+1 แก้ว</button>
     </div>
     ${stepsRow(t, pers)}
     ${moodRow(t)}
+    </div>
     ${easyCard(t, pers, goal)}
     ${holyCard(t)}
     ${todayCards(t)}
-    ${hasGym && !t.done && !t.day.easy ? '<div class="gym-cta"><button class="btn lotus big block" data-act="goGym">🏋️ วันนี้ไปยิม</button></div>' : ''}
+    ${hasGym && !t.done && !t.day.easy ? `<div class="gym-cta"><button class="btn lotus big block" data-act="goGym">${icon('dumbbell', { size: 20 })} วันนี้ไปยิม</button></div>` : ''}
     <ol class="timeline">${items.map((it, i) => timelineItem(it, t, meals, i === nowIdx)).join('')}</ol>`;
 }
 
 const MOODS = [
-  { v: 1, e: '😫', l: 'แย่มาก' }, { v: 2, e: '😕', l: 'ไม่ค่อยดี' }, { v: 3, e: '😐', l: 'เฉยๆ' },
-  { v: 4, e: '🙂', l: 'ดี' }, { v: 5, e: '😄', l: 'ดีมาก' },
+  { v: 1, l: 'แย่มาก' }, { v: 2, l: 'ไม่ค่อยดี' }, { v: 3, l: 'เฉยๆ' },
+  { v: 4, l: 'ดี' }, { v: 5, l: 'ดีมาก' },
 ];
 
 // One tap; feeds the patterns ("days you exercise, your mood is better").
 function moodRow(t) {
   return `<div class="water mood-row" role="group" aria-label="วันนี้รู้สึกอย่างไร">
-    <span class="small muted">ใจวันนี้</span>
-    <div class="moods">${MOODS.map((m) => `<button data-act="mood" data-v="${m.v}" aria-label="${m.l}" aria-pressed="${t.day.mood === m.v}">${m.e}</button>`).join('')}</div>
+    <span class="label-ic">${icon('heart')}</span><span class="small muted nowrap">ใจวันนี้</span>
+    <div class="moods">${MOODS.map((m) => `<button data-act="mood" data-v="${m.v}" aria-label="${m.l}" aria-pressed="${t.day.mood === m.v}">${moodIcon(m.v)}</button>`).join('')}</div>
   </div>`;
 }
 
 // "วันนี้ไม่ไหว": one button that softens every target for today only.
 function easyCard(t, pers, waterGoalNow) {
   if (!t.day.easy) {
-    return '<button class="btn soft block easy-btn" data-act="easyOn">🫶 วันนี้ไม่ไหว</button>';
+    return `<button class="btn ghost block easy-btn" data-act="easyOn">${icon('cloud', { size: 18 })} วันนี้ไม่ไหว</button>`;
   }
   return `<div class="card easy-card">
-    <div class="head">🫶 โหมดวันนี้ไม่ไหว</div>
+    <div class="head">โหมดวันนี้ไม่ไหว</div>
     <p class="small">ลดเป้าให้หมดแล้ว: น้ำ ${waterGoalNow} แก้ว · เดิน ${stepGoalToday(t, pers).toLocaleString('th-TH')} ก้าว ·
       ${t.session && !t.done ? 'ออกกำลังกาย → ยืดเส้นเบาๆ (ไม่ทำก็ได้)' : 'ไม่ต้องออกกำลังกาย'} · อาหารเบาๆ</p>
     <p class="small muted">โปรแกรมที่พลาดวันนี้ แมวย้ายไปวันอื่นให้เอง · พรุ่งนี้กลับเป็นปกติเอง</p>
@@ -1055,7 +1097,7 @@ function holyCard(t) {
   if (!t.holy) return '';
   const swapped = t.session?.adjusted === 'holy';
   return `<div class="card holy-card">
-    <div class="row"><span class="holy-mark" aria-hidden="true">🪷</span>
+    <div class="row"><span class="holy-mark" aria-hidden="true">${icon('lotus')}</span>
       <div class="grow"><div class="head">วันนี้วันพระ · ${t.holy.label}</div>
         <p class="small">${swapped ? 'แมวชวนนั่งสมาธิกับยืดเหยียดเบาๆ แทนวันเล่นหนัก โปรแกรมเดิมย้ายไปวันถัดไปให้แล้ว'
     : 'วันดีๆ สำหรับนั่งสมาธิสักครู่ หรือยืดเหยียดเบาๆ ให้ใจสงบ'}</p></div></div>
@@ -1072,10 +1114,10 @@ function todayCards(t) {
     .find((p) => !state.insightSeen[p.id] || daysSince(state.insightSeen[p.id], t.key) >= 14);
   if (pattern) {
     cards.push(`<div class="card insight">
-      <div class="small muted">🔍 แมวสังเกตเห็นว่า…</div>
+      <div class="small muted row"><span class="card-ic">${icon('eye', { size: 18 })}</span>แมวสังเกตเห็นว่า…</div>
       <p class="head">${pattern.text}</p>
       <p class="small">${pattern.tip}</p>
-      <button class="btn ghost sm" data-act="insightSeen" data-id="${pattern.id}">ขอบใจนะ 🐾</button>
+      <button class="btn ghost sm" data-act="insightSeen" data-id="${pattern.id}">ขอบใจนะ</button>
     </div>`);
   }
   // Rewards close to (or at) their target.
@@ -1084,9 +1126,9 @@ function todayCards(t) {
     if (!pr.near && !pr.done) continue;
     const m = REWARD_METRICS[r.metric];
     cards.push(`<div class="card reward-card">
-      <div class="head">🎁 ${pr.done ? `ครบแล้ว! ได้เวลา${esc(r.title)}` : `อีก ${pr.left} ${m.unit} จะได้${esc(r.title)}`}</div>
+      <div class="head row"><span class="card-ic">${icon('gift', { size: 20 })}</span>${pr.done ? `ครบแล้ว! ได้เวลา${esc(r.title)}` : `อีก ${pr.left} ${m.unit} จะได้${esc(r.title)}`}</div>
       ${progressBar(pr.pct, `${m.label} ${pr.count}/${pr.target} ${m.unit}`)}
-      ${pr.done ? `<button class="btn primary sm" data-act="claimReward" data-id="${r.id}">รับรางวัลแล้ว 🎉</button>` : ''}
+      ${pr.done ? `<button class="btn primary sm" data-act="claimReward" data-id="${r.id}">รับรางวัลแล้ว</button>` : ''}
     </div>`);
   }
   // Early in the week: last week's story is ready.
@@ -1096,7 +1138,7 @@ function todayCards(t) {
     const has = Array.from({ length: 7 }, (_, i) => addDays(prevWs, i)).some((k) => state.days[k]);
     if (has) {
       cards.push(`<button class="card story-teaser" data-act="openStory">
-        <span class="head">📖 เรื่องเล่าสัปดาห์ที่แล้วพร้อมแล้ว</span><span class="chev">›</span></button>`);
+        <span class="card-ic">${icon('book', { size: 20 })}</span><span class="head grow">เรื่องเล่าสัปดาห์ที่แล้วพร้อมแล้ว</span><span class="chev">›</span></button>`);
     }
   }
   return cards.join('');
@@ -1116,11 +1158,13 @@ function stepsRow(t, pers) {
   const note = t.day.checkin ? { hard: 'วันนี้สดใส เพิ่มให้นิดนึง', light: '', rest: 'วันนี้ง่วง ลดให้แล้ว' }[t.day.checkin.level] : '';
   if (done != null && !ui.editSteps) {
     return `<button class="water steps" data-act="editSteps">
-      <span class="grow">👟 เดินไป <b>${done.toLocaleString('th-TH')}</b> / ${goal.toLocaleString('th-TH')} ก้าว
-        ${done >= goal ? ' · ถึงเป้าแล้ว 🎉' : ''}</span><span class="small muted">แก้</span></button>`;
+      <span class="label-ic">${icon('steps')}</span>
+      <span class="grow">เดินไป <b>${done.toLocaleString('th-TH')}</b> / ${goal.toLocaleString('th-TH')} ก้าว
+        ${done >= goal ? ' · ถึงเป้าแล้ว' : ''}</span><span class="small muted">แก้</span></button>`;
   }
   return `<form class="water steps" data-form="steps">
-    <label class="grow">👟 เป้าวันนี้ <b>${goal.toLocaleString('th-TH')}</b> ก้าว${note ? `<br><span class="small muted">${note}</span>` : ''}
+    <span class="label-ic">${icon('steps')}</span>
+    <label class="grow">เป้าวันนี้ <b>${goal.toLocaleString('th-TH')}</b> ก้าว${note ? `<br><span class="small muted">${note}</span>` : ''}
       <input type="number" name="steps" inputmode="numeric" min="0" max="100000" placeholder="ใส่จำนวนก้าวจากมือถือ" value="${done ?? ''}" aria-label="จำนวนก้าววันนี้"></label>
     <button class="btn primary sm">บันทึก</button>
   </form>`;
@@ -1139,7 +1183,7 @@ function timelineItem(it, t, meals, isNow) {
 
   if (it.id === 'checkin') {
     const c = t.day.checkin;
-    emoji = '☀️';
+    emoji = icon('sun');
     title = 'เช็กอินตอนเช้า';
     sub = c ? `ความพร้อม ${c.score} · ${LEVELS[c.level].label} · แตะเพื่อแก้` : '5 คำถาม แตะตอบข้อละครั้ง';
     actions = '<button class="btn primary" data-act="checkin">เริ่มเช็กอิน</button>';
@@ -1148,33 +1192,33 @@ function timelineItem(it, t, meals, isNow) {
   } else if (it.slot) {
     const m = meals[it.slot];
     const status = t.day.meals[it.slot]?.status;
-    emoji = m?.emoji ?? '🍽️';
+    emoji = icon('meal');
     title = `${MEAL_SLOTS[it.slot].label}: ${m ? esc(m.name) : 'เลือกกินตามสะดวก'}`;
-    sub = status === 'plan' ? 'กินตามนี้แล้ว 👍' : status === 'other' ? 'กินอย่างอื่น ก็โอเค 👌'
-      : m ? `${SOURCES[m.src].emoji} ${SOURCES[m.src].label} · ~฿${m.price}` : '';
+    sub = status === 'plan' ? 'กินตามนี้แล้ว' : status === 'other' ? 'กินอย่างอื่น ก็โอเค'
+      : m ? `${SOURCES[m.src].label} · ~฿${m.price}` : '';
     actions = `<button class="btn primary" data-act="meal" data-slot="${it.slot}" data-v="plan">กินตามนี้แล้ว</button>
       <button class="btn soft" data-act="meal" data-slot="${it.slot}" data-v="other">กินอย่างอื่น</button>
-      <button class="btn ghost sm" data-act="swapMeal" data-slot="${it.slot}">🔄 เปลี่ยนเมนู</button>`;
+      <button class="btn ghost sm" data-act="swapMeal" data-slot="${it.slot}">เปลี่ยนเมนู</button>`;
     tickBtn = tick('mealTick', `data-slot="${it.slot}"`);
   } else if (it.id === 'workout') {
     const s = t.session;
-    emoji = sessionEmoji(s);
+    emoji = sessionEmoji(s, 22);
     title = sessionTitle(s);
     sub = `${intensityChip(s)}${t.entry.moved && !t.done ? ' <span class="badge dusk">ย้ายมาจากวันก่อน</span>' : ''}`;
     // วันพระ and "not today" already explain themselves in their own card above.
     if (s.adjusted && !t.done && s.adjusted !== 'holy' && s.adjusted !== 'easy') sub += `<div class="note">${ADJUST_TEXT[s.adjusted]}</div>`;
     actions = s.activity === 'gym'
-      ? '<button class="btn lotus" data-act="goGym">🏋️ วันนี้ไปยิม</button>'
+      ? '<button class="btn lotus" data-act="goGym">วันนี้ไปยิม</button>'
       : '<button class="btn primary" data-act="startSession">เริ่มเลย</button>';
     tickBtn = tick('workoutTick');
   } else if (it.id === 'rest') {
-    emoji = '🌙';
+    emoji = icon('moon');
     title = 'วันพัก';
     sub = 'ยืดเส้นเบาๆ 10 นาทีถ้าอยาก ไม่ทำก็ไม่เป็นไร';
     actions = '<button class="btn soft" data-act="openExercise" data-id="mobility">ดูท่ายืดเส้น</button>';
     tickBtn = tick('tick', 'data-id="rest"');
   } else {
-    emoji = '🛏️';
+    emoji = icon('bed');
     title = 'วางมือถือ เตรียมนอน';
     sub = 'นอนพอ พรุ่งนี้แมวจะได้สดใส';
     tickBtn = tick('tick', 'data-id="winddown"');
@@ -1198,8 +1242,8 @@ function renderWeek() {
   const { week, missed, dropped } = t.plan;
   const holyMap = state.settings.holyDays ? holyDays(week[0].key, week[6].key) : {};
   const note = missed > 0
-    ? `พลาดไป ${missed} วัน ไม่เป็นไรเลย แมวย้ายตารางให้แล้ว${dropped ? ` (ตัดวันเบาออก ${dropped} วัน พักเยอะหน่อยก็ได้บุญ)` : ''} 🐾`
-    : 'สลับวันหนัก วันเบา วันพัก และไม่เล่นกล้ามเนื้อเดิมติดกัน 🪷';
+    ? `พลาดไป ${missed} วัน ไม่เป็นไรเลย แมวย้ายตารางให้แล้ว${dropped ? ` (ตัดวันเบาออก ${dropped} วัน พักเยอะหน่อยก็ได้บุญ)` : ''}`
+    : 'สลับวันหนัก วันเบา วันพัก และไม่เล่นกล้ามเนื้อเดิมติดกัน';
   $('#view-week').innerHTML = `
     <div class="view-head"><h1>ตารางสัปดาห์นี้</h1></div>
     <div class="hero">${mascot('normal', { size: 84 })}<div class="bubble grow small">${note}</div></div>
@@ -1209,18 +1253,18 @@ function renderWeek() {
       let title;
       if (d.done) title = `${sessionEmoji(s)} ${esc(getDay(d.key).workout?.title ?? sessionTitle(s))}`;
       else if (s) title = `${sessionEmoji(s)} ${sessionTitle(s)}`;
-      else title = d.isPast && d.available ? '🌙 พักไป' : '🌙 วันพัก';
+      else title = d.isPast && d.available ? 'พักไป' : 'วันพัก';
       const holy = holyMap[d.key];
-      const chips = `${s ? `${intensityChip(s)}${d.moved ? ' <span class="badge dusk">ย้ายมา</span>' : ''}` : ''}${holy ? ` <span class="badge lotus">🪷 วันพระ</span>` : ''}`;
+      const chips = `${s ? `${intensityChip(s)}${d.moved ? ' <span class="badge dusk">ย้ายมา</span>' : ''}` : ''}${holy ? ` <span class="badge lotus">วันพระ</span>` : ''}`;
       const open = ui.weekOpen === d.key && s;
       const detail = open ? `<span class="wd-list">${sessionItems(s).map((i) => infoName(exerciseInfo(i.id))).join(' → ')}</span>` : '';
       return `<button class="week-day${d.isToday ? ' today' : ''}${d.isPast ? ' past' : ''}" data-act="weekOpen" data-key="${d.key}" aria-expanded="${!!open}">
         <span class="wd-date">${WEEKDAYS[date.getDay()]}<b>${date.getDate()}</b></span>
         <span><span class="wd-title">${title}</span><br>${chips}${d.isToday ? ' <span class="badge gold">วันนี้</span>' : ''}</span>
-        <span class="head">${d.done ? '✅' : ''}</span>${detail}
+        <span class="head">${d.done ? '' : ''}</span>${detail}
       </button>`;
     }).join('')}
-    <button class="btn soft block" data-act="editProfile">✏️ เปลี่ยนวันว่าง เป้าหมาย หรือกิจกรรม</button>
+    <button class="btn soft block" data-act="editProfile">เปลี่ยนวันว่าง เป้าหมาย หรือกิจกรรม</button>
     ${monthCalendar(t)}`;
 }
 
@@ -1242,12 +1286,12 @@ function monthCalendar(t) {
     const worked = state.days[key]?.workout?.done;
     const label = [`${d}`, worked ? 'ออกกำลังกายแล้ว' : '', h ? `วันพระ ${h.label}` : ''].filter(Boolean).join(' ');
     cells.push(`<span class="cal-day${key === t.key ? ' today' : ''}${worked ? ' worked' : ''}" aria-label="${label}">
-      ${d}${h ? '<i class="cal-holy" aria-hidden="true">🪷</i>' : ''}</span>`);
+      ${d}${h ? '<i class="cal-holy" aria-hidden="true"></i>' : ''}</span>`);
   }
   return `<div class="card">
     <h2>ปฏิทิน${today.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</h2>
     <div class="cal">${['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((w) => `<b>${w}</b>`).join('')}${cells.join('')}</div>
-    <div class="legend cal-legend"><span><i class="cal-dot"></i>ออกกำลังกายแล้ว</span>${state.settings.holyDays ? '<span>🪷 วันพระ</span>' : ''}</div>
+    <div class="legend cal-legend"><span><i class="cal-dot"></i>ออกกำลังกายแล้ว</span>${state.settings.holyDays ? '<span>วันพระ</span>' : ''}</div>
     ${state.settings.holyDays ? '<p class="muted small">วันพระคำนวณจากดวงจันทร์ อาจต่างจากปฏิทินหลวงได้ 1 วัน</p>' : ''}
   </div>`;
 }
@@ -1267,19 +1311,19 @@ function renderFood() {
     const m = meals[slot];
     const status = day.meals[slot]?.status;
     if (!m) {
-      return `<div class="card meal"><div class="head">${MEAL_SLOTS[slot].emoji} ${MEAL_SLOTS[slot].label}</div>
+      return `<div class="card meal"><div class="head">${MEAL_SLOTS[slot].label}</div>
         <p class="muted">ไม่มีเมนูที่ตรงกับเงื่อนไข เลือกกินตามสะดวกเลยนะ</p></div>`;
     }
     return `<div class="card meal${status ? ' done' : ''}">
-      <div class="row between wrap"><span class="muted small">${MEAL_SLOTS[slot].emoji} ${MEAL_SLOTS[slot].label}</span>
-        <span class="badge">${SOURCES[m.src].emoji} ${SOURCES[m.src].label} · ~฿${m.price}</span></div>
-      <div class="row"><span class="meal-emoji">${m.emoji}</span><span class="meal-name grow">${esc(m.name)}</span></div>
-      ${m.steps ? `<ol>${m.steps.map((x) => `<li>${x}</li>`).join('')}</ol>` : `<p class="small">💡 ${m.tip}</p>`}
-      ${status ? `<p class="head">${status === 'plan' ? 'กินตามนี้แล้ว 👍' : 'กินอย่างอื่น ก็โอเค 👌'}</p>` : ''}
+      <div class="row between wrap"><span class="muted small">${MEAL_SLOTS[slot].label}</span>
+        <span class="badge">${SOURCES[m.src].label} · ~฿${m.price}</span></div>
+      <div class="row"><span class="tl-emoji">${icon(MEAL_ICON[m.src] ?? 'meal')}</span><span class="meal-name grow">${esc(m.name)}</span></div>
+      ${m.steps ? `<ol>${m.steps.map((x) => `<li>${x}</li>`).join('')}</ol>` : `<p class="small">${m.tip}</p>`}
+      ${status ? `<p class="head">${status === 'plan' ? 'กินตามนี้แล้ว' : 'กินอย่างอื่น ก็โอเค'}</p>` : ''}
       <div class="tl-actions">
         ${canTick && !status ? `<button class="btn primary" data-act="meal" data-slot="${slot}" data-v="plan">กินตามนี้แล้ว</button>
           <button class="btn soft" data-act="meal" data-slot="${slot}" data-v="other">กินอย่างอื่น</button>` : ''}
-        ${!status && key >= t.key ? `<button class="btn ghost sm" data-act="swapMeal" data-slot="${slot}" data-key="${key}">🔄 เปลี่ยนเมนู</button>` : ''}
+        ${!status && key >= t.key ? `<button class="btn ghost sm" data-act="swapMeal" data-slot="${slot}" data-key="${key}">เปลี่ยนเมนู</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -1303,12 +1347,12 @@ function renderFood() {
       return `<button data-act="foodDay" data-key="${d.key}" aria-pressed="${d.key === key}">${WEEKDAYS[dt.getDay()]}<b>${dt.getDate()}</b></button>`;
     }).join('')}</div>
     <div class="note gold">${DAY_TYPE_LABEL[mealDayType(session)]} · ${sessionEmoji(session)} ${sessionTitle(session)}</div>
-    ${pers ? `<p class="small muted">🔥 เป้าประมาณ ${pers.cal.kcal.toLocaleString('th-TH')} kcal/วัน ไม่ต้องนับ กินตามแผนนี้ก็ใกล้เคียงแล้ว</p>` : ''}
-    ${food.allergies.length ? `<p class="small muted">⚠️ ร้านตามสั่งมักใส่ซอสหอยนางรม น้ำปลา หรือถั่ว บอกร้านทุกครั้งว่าแพ้${food.allergies.map((a) => ALLERGIES[a]).join(', ')}</p>` : ''}
+    ${pers ? `<p class="small muted">เป้าประมาณ ${pers.cal.kcal.toLocaleString('th-TH')} kcal/วัน ไม่ต้องนับ กินตามแผนนี้ก็ใกล้เคียงแล้ว</p>` : ''}
+    ${food.allergies.length ? `<p class="small muted">ร้านตามสั่งมักใส่ซอสหอยนางรม น้ำปลา หรือถั่ว บอกร้านทุกครั้งว่าแพ้${food.allergies.map((a) => ALLERGIES[a]).join(', ')}</p>` : ''}
     ${cards}
     <div class="card">
-      <h2>🛒 ของที่ต้องซื้อ (ถึงสิ้นสัปดาห์)</h2>
-      ${main.length ? main.map(row).join('') : '<p class="muted">สัปดาห์นี้ไม่ต้องซื้อของเข้าบ้านเลย ซื้อกินสบายๆ 🛍️</p>'}
+      <h2>ของที่ต้องซื้อ (ถึงสิ้นสัปดาห์)</h2>
+      ${main.length ? main.map(row).join('') : '<p class="muted">สัปดาห์นี้ไม่ต้องซื้อของเข้าบ้านเลย ซื้อกินสบายๆ</p>'}
       ${staples.length ? `<h3>ของติดครัว (มีแล้วข้ามได้)</h3>${staples.map(row).join('')}` : ''}
     </div>`;
 }
@@ -1320,9 +1364,9 @@ function renderGym() {
     <div class="view-head"><h1>ยิม</h1></div>
     <div class="card">
       <div class="hero">${mascot(t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'bright', { size: 90 })}
-        <div class="grow">${t.done ? '<b>วันนี้ออกกำลังกายแล้ว เก่งมาก 🎉</b>'
+        <div class="grow">${t.done ? '<b>วันนี้ออกกำลังกายแล้ว เก่งมาก</b>'
     : `<b>โปรแกรมวันนี้</b><br>${sessionTitle(preview)}<br>${intensityChip(preview)}`}</div></div>
-      ${t.done ? '' : '<button class="btn lotus big block" data-act="goGym" style="margin-top:12px">🏋️ วันนี้ไปยิม</button>'}
+      ${t.done ? '' : '<button class="btn lotus big block" data-act="goGym" style="margin-top:12px">วันนี้ไปยิม</button>'}
     </div>
     <h2>คู่มือเครื่องเล่น</h2>
     <p class="muted small">แตะเครื่องเพื่อดูวิธีเล่น กล้ามเนื้อที่ใช้ และค่าที่ตั้งไว้ · ใส่รูปเครื่องจริงในยิมได้</p>
@@ -1359,7 +1403,7 @@ function renderMe() {
         <button class="btn primary big block" data-act="editBody">กรอกข้อมูลร่างกาย</button>
       </div>
       ${storyCard(t)}${rewardsCard(t)}
-      <button class="btn soft block" data-act="tab" data-view="settings">⚙️ ตั้งค่าอื่นๆ</button>`;
+      <button class="btn soft block" data-act="tab" data-view="settings">ตั้งค่าอื่นๆ</button>`;
     return;
   }
 
@@ -1374,7 +1418,7 @@ function renderMe() {
   el.innerHTML = `
     <div class="view-head"><h1>ของฉัน</h1></div>
     <div class="hero">${mascot(t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal', { size: 84 })}
-      <div class="bubble grow small">ตัวเลขทุกอย่างอัปเดตเองเมื่อชั่งน้ำหนัก เช็กอิน หรือออกกำลังกาย 🐾</div></div>
+      <div class="bubble grow small">ตัวเลขทุกอย่างอัปเดตเองเมื่อชั่งน้ำหนัก เช็กอิน หรือออกกำลังกาย</div></div>
 
     <div class="stats">
       <div class="stat">
@@ -1436,10 +1480,10 @@ function renderMe() {
     <div class="card">
       <h2>ข้อมูลร่างกาย</h2>
       <p>สูง ${body.height} ซม. · อายุ ${body.age} ปี · ${SEXES[body.sex]}</p>
-      <p>${ACTIVITY_LEVELS[body.activity].emoji} ${ACTIVITY_LEVELS[body.activity].label} · ${WEIGHT_GOALS[p.body.weightGoal].emoji} อยาก${WEIGHT_GOALS[p.body.weightGoal].label}</p>
-      <button class="btn soft block" data-act="editBody">✏️ แก้ไข</button>
+      <p>${ACTIVITY_LEVELS[body.activity].label} · อยาก${WEIGHT_GOALS[p.body.weightGoal].label}</p>
+      <button class="btn soft block" data-act="editBody">แก้ไข</button>
     </div>
-    <button class="btn soft block" data-act="tab" data-view="settings">⚙️ ตั้งค่าอื่นๆ</button>
+    <button class="btn soft block" data-act="tab" data-view="settings">ตั้งค่าอื่นๆ</button>
     <p class="muted small center">ตัวเลขเป็นค่าประมาณจากสูตรมาตรฐาน ไม่ใช่คำแนะนำทางการแพทย์</p>`;
   bindChart(el.querySelector('.wchart'), trend.points);
 }
@@ -1457,7 +1501,7 @@ function storyCard(t) {
     save();
   }
   return `<div class="card story">
-    <div class="row between wrap"><h2>📖 เรื่องเล่าประจำสัปดาห์</h2>
+    <div class="row between wrap"><h2>เรื่องเล่าประจำสัปดาห์</h2>
       <div class="chips">
         <button class="chip" data-act="storyWeek" data-w="this" aria-pressed="${which === 'this'}">สัปดาห์นี้</button>
         <button class="chip" data-act="storyWeek" data-w="prev" aria-pressed="${which === 'prev'}">สัปดาห์ก่อน</button>
@@ -1474,15 +1518,15 @@ function rewardsCard(t) {
     const pr = rewardProgress(r, state.days, t.key);
     const m = REWARD_METRICS[r.metric];
     return `<div class="reward${r.claimedAt ? ' claimed' : ''}">
-      <div class="row between"><b>🎁 ${esc(r.title)}</b>
+      <div class="row between"><b>${esc(r.title)}</b>
         <button class="icon-btn" data-act="rewardDelete" data-id="${r.id}" aria-label="ลบเป้า ${esc(r.title)}">✕</button></div>
       <div class="small muted">เมื่อ${m.label}ครบ ${r.target} ${m.unit} · นับตั้งแต่ ${shortDate(r.start)}</div>
-      ${progressBar(pr.pct, r.claimedAt ? `ได้รับรางวัลแล้ว ${shortDate(r.claimedAt)} 🎉` : pr.done ? 'ครบแล้ว! ไปรับรางวัลได้เลย' : `${pr.count}/${pr.target} ${m.unit} · อีก ${pr.left}`)}
-      ${pr.done && !r.claimedAt ? `<button class="btn primary sm" data-act="claimReward" data-id="${r.id}">รับรางวัลแล้ว 🎉</button>` : ''}
+      ${progressBar(pr.pct, r.claimedAt ? `ได้รับรางวัลแล้ว ${shortDate(r.claimedAt)}` : pr.done ? 'ครบแล้ว! ไปรับรางวัลได้เลย' : `${pr.count}/${pr.target} ${m.unit} · อีก ${pr.left}`)}
+      ${pr.done && !r.claimedAt ? `<button class="btn primary sm" data-act="claimReward" data-id="${r.id}">รับรางวัลแล้ว</button>` : ''}
     </div>`;
   }).join('');
   return `<div class="card">
-    <h2>🎁 รางวัลที่ตั้งให้ตัวเอง</h2>
+    <h2>รางวัลที่ตั้งให้ตัวเอง</h2>
     ${list || '<p class="muted small">ตั้งรางวัลเล็กๆ ไว้ล่อใจตัวเองกัน เช่น "เข้ายิมครบ 20 ครั้ง ซื้อรองเท้าคู่ใหม่"</p>'}
     <form class="form-grid" data-form="reward">
       <label>ทำอะไร<select name="metric">${Object.entries(REWARD_METRICS).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select></label>
@@ -1620,8 +1664,8 @@ function renderSettings() {
   const s = state.settings;
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
   const permText = {
-    granted: '✅ เปิดการแจ้งเตือนแล้ว',
-    denied: '🚫 การแจ้งเตือนถูกปิดไว้ เปิดได้ในการตั้งค่าของเบราว์เซอร์',
+    granted: 'เปิดการแจ้งเตือนแล้ว',
+    denied: 'การแจ้งเตือนถูกปิดไว้ เปิดได้ในการตั้งค่าของเบราว์เซอร์',
     default: 'ยังไม่ได้เปิดการแจ้งเตือนของระบบ',
     unsupported: 'เบราว์เซอร์นี้ยังไม่รองรับการแจ้งเตือน (บน iPhone ต้อง "เพิ่มไปยังหน้าจอโฮม" ก่อน)',
   }[perm];
@@ -1632,13 +1676,13 @@ function renderSettings() {
     <h1>ตั้งค่า</h1>
     <div class="card">
       <h2>ข้อมูลของฉัน</h2>
-      <p>${GOALS[p.goal].emoji} ${GOALS[p.goal].label}</p>
-      <p>📅 ว่าง ${WEEK_ORDER.filter((n) => p.days.includes(n)).map((n) => WEEKDAYS[n]).join(' ')} · ช่วง${SLOTS[p.slot].label}</p>
-      <p>${p.activities.map((a) => `${ACTIVITIES[a].emoji} ${ACTIVITIES[a].label}`).join(' · ')}</p>
-      <p>${FOOD_MODES[p.food.mode].emoji} ${FOOD_MODES[p.food.mode].label} · งบ${BUDGETS[p.food.budget].label}
+      <p>${GOALS[p.goal].label}</p>
+      <p>ว่าง ${WEEK_ORDER.filter((n) => p.days.includes(n)).map((n) => WEEKDAYS[n]).join(' ')} · ช่วง${SLOTS[p.slot].label}</p>
+      <p>${p.activities.map((a) => ACTIVITIES[a].label).join(' · ')}</p>
+      <p>${FOOD_MODES[p.food.mode].label} · งบ${BUDGETS[p.food.budget].label}
         ${p.food.allergies.length ? ` · แพ้${p.food.allergies.map((a) => ALLERGIES[a]).join(', ')}` : ''}
         ${p.food.avoid.length ? ` · ${p.food.avoid.map((a) => AVOID[a]).join(', ')}` : ''}</p>
-      <button class="btn soft block" data-act="editProfile">✏️ แก้คำตอบ</button>
+      <button class="btn soft block" data-act="editProfile">แก้คำตอบ</button>
     </div>
 
     <div class="card">
@@ -1654,14 +1698,14 @@ function renderSettings() {
 
     <div class="card">
       <h2>เสียงและวันพระ</h2>
-      <div class="rem-row"><span class="grow">🔔 เสียงระฆัง/มู่ยู่ เมื่อทำรายการเสร็จ</span>
+      <div class="rem-row"><span class="grow">เสียงระฆัง/มู่ยู่ เมื่อทำรายการเสร็จ</span>
         <label class="switch" aria-label="เปิด/ปิดเสียง"><input type="checkbox" data-act="soundToggle" ${state.settings.sound ? 'checked' : ''}><span></span></label></div>
-      <div class="rem-row"><span class="grow">🪷 แสดงวันพระ และชวนทำกิจกรรมเบาๆ ในวันพระ</span>
+      <div class="rem-row"><span class="grow">แสดงวันพระ และชวนทำกิจกรรมเบาๆ ในวันพระ</span>
         <label class="switch" aria-label="เปิด/ปิดวันพระ"><input type="checkbox" data-act="holyToggle" ${state.settings.holyDays ? 'checked' : ''}><span></span></label></div>
     </div>
 
     <div class="card">
-      <h2>🎒 ของที่ต้องเตรียมไปยิม</h2>
+      <h2>ของที่ต้องเตรียมไปยิม</h2>
       ${state.checklist.map((c) => `<div class="row"><span class="grow">${esc(c.text)}</span>
         <button class="icon-btn" data-act="prepDelete" data-id="${c.id}" aria-label="ลบ ${esc(c.text)}">✕</button></div>`).join('')}
       <form class="row" data-form="prepAdd" style="margin-top:8px">
@@ -1676,14 +1720,14 @@ function renderSettings() {
       ${perm === 'granted' ? '<button class="btn soft block" data-act="notifyTest">ลองส่งแจ้งเตือน</button>' : ''}
       <p class="muted small">เด้งเตือนขณะที่แอปเปิดอยู่หรือพับไว้ ถ้าปิดแอปไป รายการที่ถึงเวลาจะรออยู่ด้านบนตอนเปิดครั้งถัดไป</p>
       ${reminders.map((r) => `<div class="rem-row">
-        <span class="tl-emoji">${REMINDER_TEXT[r.type].icon}</span>
+        <span class="tl-emoji">${icon(REMINDER_TEXT[r.type].icon)}</span>
         <label class="grow rem-time"><span class="small muted">${REMINDER_TEXT[r.type].label}</span>
           <input type="time" value="${r.time}" data-change="remTime" data-id="${r.id}"></label>
         <label class="switch" aria-label="เปิด/ปิด"><input type="checkbox" data-change="remEnabled" data-id="${r.id}" ${r.enabled ? 'checked' : ''}><span></span></label>
         <button class="icon-btn" data-act="remDelete" data-id="${r.id}" aria-label="ลบเวลาเตือน">✕</button>
       </div>`).join('')}
       <form class="row" data-form="remAdd" style="margin-top:10px">
-        <select name="type" aria-label="ประเภท">${Object.entries(REMINDER_TEXT).map(([k, r]) => `<option value="${k}">${r.icon} ${r.label}</option>`).join('')}</select>
+        <select name="type" aria-label="ประเภท">${Object.entries(REMINDER_TEXT).map(([k, r]) => `<option value="${k}">${r.label}</option>`).join('')}</select>
         <input type="time" name="time" value="12:00" required aria-label="เวลา" style="width:auto;min-width:120px">
         <button class="btn primary sm">เพิ่ม</button>
       </form>
@@ -1723,7 +1767,7 @@ function alertHtml(r) {
     workout: '<button class="btn lotus big block" data-act="startFromAlert">ไปกันเลย</button>',
   }[r.type];
   return `<div class="alert" role="alert">
-    <div class="row between"><span class="alert-title">${x.icon} ${x.text}</span><span class="muted small">${r.time} น.</span></div>
+    <div class="row between"><span class="alert-title">${x.text}</span><span class="muted small">${r.time} น.</span></div>
     <div style="margin-top:8px">${main}</div>
     <div class="actions">
       <button class="btn soft" data-act="snooze" data-id="${r.id}" data-min="10">เลื่อน 10 นาที</button>
@@ -1750,7 +1794,7 @@ function snooze(id, minutes) {
   reminderEntry(id).snoozeUntil = until;
   save();
   renderAlerts();
-  toast(`โอเค จะเตือนอีกทีตอน ${hhmm(until)} น. 😴`);
+  toast(`โอเค จะเตือนอีกทีตอน ${hhmm(until)} น.`);
 }
 
 function skip(id) {
@@ -1773,8 +1817,8 @@ function notify(r) {
   const x = REMINDER_TEXT[r.type];
   const actions = [{ action: 'snooze', title: 'เลื่อน 10 นาที' }];
   if (r.type === 'water') actions.unshift({ action: 'water', title: 'ดื่มแล้ว +1' });
-  swReg.showNotification(`${x.icon} ${x.text}`, {
-    body: 'แตะเพื่อเปิด หรือกดเลื่อนเตือนได้ 🐾',
+  swReg.showNotification(x.text, {
+    body: 'แตะเพื่อเปิด หรือกดเลื่อนเตือนได้',
     tag: r.id,
     renotify: true,
     icon: 'icons/icon.svg',
@@ -1814,16 +1858,16 @@ function checkRewards() {
     let msg = null;
     if (pr.done && !r.doneNotified) {
       r.doneNotified = true;
-      msg = `🎁 ครบแล้ว! ได้เวลา${r.title}`;
+      msg = `ครบแล้ว! ได้เวลา${r.title}`;
     } else if (pr.near && !r.nearNotified) {
       r.nearNotified = true;
-      msg = `🎁 อีก ${pr.left} ${m.unit} จะได้${r.title}แล้ว`;
+      msg = `อีก ${pr.left} ${m.unit} จะได้${r.title}แล้ว`;
     }
     if (!msg) continue;
     changed = true;
     toast(msg);
     if (document.visibilityState !== 'visible' && swReg && 'Notification' in window && Notification.permission === 'granted') {
-      swReg.showNotification(msg, { body: 'แมวนับให้อยู่นะ 🐾', icon: 'icons/icon.svg', tag: `reward-${r.id}` }).catch(() => {});
+      swReg.showNotification(msg, { body: 'แมวนับให้อยู่นะ', icon: 'icons/icon.svg', tag: `reward-${r.id}` }).catch(() => {});
     }
   }
   if (changed) save();
@@ -1850,7 +1894,7 @@ function showView(view) {
 function render() {
   if (!state.profile) {
     $('#view-today').innerHTML = `<div class="sheet-mascot">${mascot('normal', { size: 160 })}</div>
-      <button class="btn primary big block" data-act="openOnboard">เริ่มตั้งค่า 🐾</button>`;
+      <button class="btn primary big block" data-act="openOnboard">เริ่มตั้งค่า</button>`;
     renderAlerts();
     return;
   }
@@ -1931,7 +1975,7 @@ const actions = {
     state.profile.body = body;
     save();
     popSheet();
-    toast('คำนวณใหม่ให้แล้ว 🐾');
+    toast('คำนวณใหม่ให้แล้ว');
   },
   obFinish: () => {
     const s = topSheet();
@@ -1943,7 +1987,7 @@ const actions = {
     render();
     if (s.edit) {
       popSheet();
-      toast('แมวจัดตารางใหม่ให้แล้ว 🐾');
+      toast('แมวจัดตารางใหม่ให้แล้ว');
     } else replaceSheet({ ...s, step: OB_LAST });
   },
 
@@ -2014,7 +2058,7 @@ const actions = {
     save();
     render();
     sfx.bell();
-    toast('ลดเป้าให้แล้ว พักใจได้เลย 🫶', () => actions.easyOff());
+    toast('ลดเป้าให้แล้ว พักใจได้เลย', () => actions.easyOff());
   },
   easyOff: () => {
     editDay(todayKey()).easy = false;
@@ -2025,7 +2069,7 @@ const actions = {
     editDay(todayKey()).holyKeep = true;
     save();
     render();
-    toast('โอเค เล่นตามแผนเดิมนะ สู้ๆ 💪');
+    toast('โอเค เล่นตามแผนเดิมนะ สู้ๆ');
   },
   holyCalm: () => {
     editDay(todayKey()).holyKeep = false;
@@ -2053,7 +2097,7 @@ const actions = {
     save();
     render();
     sfx.bless();
-    toast(`ยินดีด้วย! ${r.title} 🎁`);
+    toast(`ยินดีด้วย! ${r.title}`);
   },
   rewardDelete: (d) => {
     const idx = state.rewards.findIndex((x) => x.id === d.id);
@@ -2125,7 +2169,7 @@ const actions = {
     ui.showAlts = false;
     $('#sheet').scrollTop = 0;
     renderSheet();
-    toast('เปลี่ยนเป็นท่าทดแทนแล้ว 🔁');
+    toast('เปลี่ยนเป็นท่าทดแทนแล้ว');
   },
   unswap: (d) => {
     delete editDay(todayKey()).altSwaps[d.id];
@@ -2154,7 +2198,7 @@ const actions = {
     day.prep = day.prep.includes(d.id) ? day.prep.filter((x) => x !== d.id) : [...day.prep, d.id];
     save();
     renderSheet();
-    if (state.checklist.every((c) => day.prep.includes(c.id))) toast('ของครบ! ออกเดินทางได้ 🎒');
+    if (state.checklist.every((c) => day.prep.includes(c.id))) toast('ของครบ! ออกเดินทางได้');
   },
 
   // week & food
@@ -2211,7 +2255,7 @@ const actions = {
   },
   notifyTest: () => {
     if (!swReg) return toast('ยังเตรียมระบบแจ้งเตือนไม่เสร็จ ลองใหม่อีกครั้ง');
-    swReg.showNotification('🐾 ทดสอบแจ้งเตือนจากเหมียวสมาธิ', {
+    swReg.showNotification('ทดสอบแจ้งเตือนจากเหมียวสมาธิ', {
       body: 'ถ้าเห็นข้อความนี้ แปลว่าแจ้งเตือนใช้งานได้',
       icon: 'icons/icon.svg',
       tag: 'test',
@@ -2249,7 +2293,7 @@ const changes = {
       await photos.put(id, blob);
       if (ui.photoUrls[id]) URL.revokeObjectURL(ui.photoUrls[id]);
       ui.photoUrls[id] = URL.createObjectURL(blob);
-      toast('ใส่รูปเครื่องจริงแล้ว 📷');
+      toast('ใส่รูปเครื่องจริงแล้ว');
       renderSheet();
       render();
     } catch {
@@ -2303,7 +2347,7 @@ const forms = {
     save();
     render();
     sfx.knock();
-    toast('ตั้งเป้ารางวัลแล้ว แมวจะคอยนับให้ 🎁');
+    toast('ตั้งเป้ารางวัลแล้ว แมวจะคอยนับให้');
   },
   steps: (form) => {
     const n = Number(form.steps.value);
@@ -2330,7 +2374,7 @@ const forms = {
     state.weights = logWeight(state.weights, todayKey(), kg);
     save();
     render();
-    toast(`จดน้ำหนักแล้ว ${kg} กก. 📝`, () => {
+    toast(`จดน้ำหนักแล้ว ${kg} กก.`, () => {
       state.weights = prev;
       save();
       render();
@@ -2391,6 +2435,8 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---------- start ----------
+const TAB_ICONS = { today: 'lotus', week: 'calendar', food: 'bowl', gym: 'dumbbell', me: 'user' };
+for (const b of document.querySelectorAll('.tabs [data-view]')) b.insertAdjacentHTML('afterbegin', icon(TAB_ICONS[b.dataset.view]));
 if (useHistory) history.replaceState(null, '');
 render();
 if (!state.profile) openOnboard();

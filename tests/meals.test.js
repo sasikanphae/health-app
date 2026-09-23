@@ -11,7 +11,7 @@ test('menu data is well formed', () => {
   for (const m of MENUS) {
     assert.ok(!ids.has(m.id), `duplicate ${m.id}`);
     ids.add(m.id);
-    assert.ok(m.slots.length && m.price > 0 && m.emoji);
+    assert.ok(m.slots.length && m.price > 0);
     if (m.src === 'cook') assert.ok(m.steps.length >= 2 && m.steps.length <= 4 && m.ingredients.length, m.id);
     else assert.ok(m.tip, m.id);
   }

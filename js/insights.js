@@ -47,7 +47,7 @@ export function findPatterns({ days, profile, today, lookback = 42 }) {
         id: 'short-sleep-skip',
         strength: skipped / shortNights.length,
         text: `${skipped} ใน ${shortNights.length} ครั้งหลังที่นอนน้อยกว่า 6 ชม. วันรุ่งขึ้นมักเลื่อน${move}`,
-        tip: `คืนก่อนวัน${move === 'ไปยิม' ? 'เข้ายิม' : 'ออกกำลังกาย'} ลองวางมือถือเร็วขึ้นสักครึ่งชั่วโมงดูไหม 🌙`,
+        tip: `คืนก่อนวัน${move === 'ไปยิม' ? 'เข้ายิม' : 'ออกกำลังกาย'} ลองวางมือถือเร็วขึ้นสักครึ่งชั่วโมงดูไหม`,
       });
     }
   }
@@ -61,7 +61,7 @@ export function findPatterns({ days, profile, today, lookback = 42 }) {
       id: 'sleep-energy',
       strength: Math.min(1, (avg(goodE) - avg(shortE)) / 2),
       text: 'เช้าที่นอนได้ 7 ชม.ขึ้นไป พลังงานดีกว่าเช้าที่นอนน้อยอย่างเห็นได้ชัด',
-      tip: 'การนอนคือตัวช่วยที่ถูกที่สุดเลยนะ 😴',
+      tip: 'การนอนคือตัวช่วยที่ถูกที่สุดเลยนะ',
     });
   }
 
@@ -73,7 +73,7 @@ export function findPatterns({ days, profile, today, lookback = 42 }) {
       id: 'workout-mood',
       strength: Math.min(1, (avg(moodOn) - avg(moodOff)) / 1.5),
       text: 'วันที่ได้ออกกำลังกาย อารมณ์ดีกว่าวันอื่นเฉลี่ยชัดเจน',
-      tip: 'วันที่ใจไม่ค่อยดี ลองขยับเบาๆ สัก 10 นาทีก็อาจช่วยได้ 🌿',
+      tip: 'วันที่ใจไม่ค่อยดี ลองขยับเบาๆ สัก 10 นาทีก็อาจช่วยได้',
     });
   }
 
@@ -85,7 +85,7 @@ export function findPatterns({ days, profile, today, lookback = 42 }) {
       id: 'breakfast-mood',
       strength: Math.min(1, (avg(moodBreakfast) - avg(moodNoBreakfast)) / 1.5),
       text: 'วันที่ได้กินมื้อเช้า อารมณ์ทั้งวันดีกว่าวันที่ข้ามไป',
-      tip: 'มื้อเช้าง่ายๆ แค่นมกับกล้วยก็นับนะ 🍌',
+      tip: 'มื้อเช้าง่ายๆ แค่นมกับกล้วยก็นับนะ',
     });
   }
 
@@ -100,7 +100,7 @@ export function findPatterns({ days, profile, today, lookback = 42 }) {
         id: 'stress-skip',
         strength: rate(low) - rate(high),
         text: `วันที่เครียดมาก มักไม่ได้${move === 'ไปยิม' ? 'ไปยิม' : 'ออกกำลังกาย'}`,
-        tip: 'วันเครียดๆ ไม่ต้องเล่นหนัก แค่เดินเล่น 10 นาทีก็ช่วยคลายได้ 🍃',
+        tip: 'วันเครียดๆ ไม่ต้องเล่นหนัก แค่เดินเล่น 10 นาทีก็ช่วยคลายได้',
       });
     }
   }
@@ -114,7 +114,7 @@ export function findHabit({ days, profile, today, hour }) {
   // Several "not today" days lately → care, not pressure.
   const easyCount = pastKeys(today, 7).filter((k) => days[k]?.easy).length;
   if (easyCount >= 3) {
-    return { id: 'many-easy', text: `สัปดาห์นี้เหนื่อยไป ${easyCount} วัน แมวเข้าใจนะ ลองนอนเร็วขึ้นสักหน่อยไหม ใจดีกับตัวเองเข้าไว้ 🫶` };
+    return { id: 'many-easy', text: `สัปดาห์นี้เหนื่อยไป ${easyCount} วัน แมวเข้าใจนะ ลองนอนเร็วขึ้นสักหน่อยไหม ใจดีกับตัวเองเข้าไว้` };
   }
 
   // Long gap since the last workout (only if they have worked out before).
@@ -123,7 +123,7 @@ export function findHabit({ days, profile, today, hour }) {
   if (last && !workedOut(days[today])) {
     const gap = Math.round((parseKey(today) - parseKey(last)) / 86_400_000);
     if (gap >= 4) {
-      return { id: 'gap', text: `ไม่ได้ขยับมา ${gap} วันแล้ว แมวคิดถึงนะ วันนี้เดินเล่นสัก 10 นาทีก็นับเป็นบุญแล้ว 🐾` };
+      return { id: 'gap', text: `ไม่ได้ขยับมา ${gap} วันแล้ว แมวคิดถึงนะ วันนี้เดินเล่นสัก 10 นาทีก็นับเป็นบุญแล้ว` };
     }
   }
 
@@ -133,7 +133,7 @@ export function findHabit({ days, profile, today, hour }) {
     const skipped = same.filter((k) => !days[k].meals?.b).length;
     if (same.length >= 3 && skipped >= 3) {
       const name = WEEKDAY_NAMES[parseKey(today).getDay()];
-      return { id: 'skip-breakfast', text: `${name}ทีไร มื้อเช้ามักหายไป 😸 วันนี้ลองหยิบนมกับกล้วยติดมือไว้ไหม เบาๆ ก็ยังดี` };
+      return { id: 'skip-breakfast', text: `${name}ทีไร มื้อเช้ามักหายไป วันนี้ลองหยิบนมกับกล้วยติดมือไว้ไหม เบาๆ ก็ยังดี` };
     }
   }
 
@@ -159,16 +159,16 @@ export function weeklyStory({ days, weekKeys, prevKeys, profile, weights = [], u
   const lines = [];
   if (!used.length) {
     return {
-      lines: ['สัปดาห์นี้แทบไม่ได้แวะมาเลย ไม่เป็นไรนะ ชีวิตวุ่นก็มีบ้าง แมวยังนั่งรออยู่ตรงนี้เสมอ 🪷'],
+      lines: ['สัปดาห์นี้แทบไม่ได้แวะมาเลย ไม่เป็นไรนะ ชีวิตวุ่นก็มีบ้าง แมวยังนั่งรออยู่ตรงนี้เสมอ'],
       stats: { workouts: 0, gym: 0, easy: 0, sleepAvg: null, water: 0, moodAvg: null },
     };
   }
 
   const n = workouts.length;
   const move = gym ? ` (เข้ายิม ${gym} ครั้ง)` : '';
-  if (n === 0) lines.push('สัปดาห์นี้เป็นสัปดาห์พักยาว ร่างกายได้ชาร์จแบตเต็มที่ 🔋');
-  else if (n <= 2) lines.push(`ขยับตัวไป ${n} ครั้ง${move} ดีกว่าไม่ได้ขยับเลยตั้งเยอะ ✨`);
-  else lines.push(`ออกกำลังกายไป ${n} ครั้ง${move} เก่งมากกก 💪`);
+  if (n === 0) lines.push('สัปดาห์นี้เป็นสัปดาห์พักยาว ร่างกายได้ชาร์จแบตเต็มที่');
+  else if (n <= 2) lines.push(`ขยับตัวไป ${n} ครั้ง${move} ดีกว่าไม่ได้ขยับเลยตั้งเยอะ`);
+  else lines.push(`ออกกำลังกายไป ${n} ครั้ง${move} เก่งมากกก`);
 
   if (sleep.length) {
     const a = round1(avg(sleep));
@@ -179,26 +179,26 @@ export function weeklyStory({ days, weekKeys, prevKeys, profile, weights = [], u
       else if (diff <= -0.3) cmp = ' น้อยลงกว่าสัปดาห์ก่อนนิดนึง ลองเข้านอนเร็วขึ้นอีกหน่อยนะ';
       else cmp = ' ใกล้เคียงกับสัปดาห์ก่อน';
     }
-    lines.push(`นอนเฉลี่ยราว ${a} ชม.${cmp} 😴`);
+    lines.push(`นอนเฉลี่ยราว ${a} ชม.${cmp}`);
   } else {
-    lines.push('สัปดาห์นี้ไม่ค่อยได้เช็กอินตอนเช้า ไม่เป็นไร แมวยังรอฟังอยู่นะ ☀️');
+    lines.push('สัปดาห์นี้ไม่ค่อยได้เช็กอินตอนเช้า ไม่เป็นไร แมวยังรอฟังอยู่นะ');
   }
 
-  if (water) lines.push(`ดื่มน้ำครบเป้า ${water} วัน 💧`);
+  if (water) lines.push(`ดื่มน้ำครบเป้า ${water} วัน`);
   if (moods.length >= 2) {
     const m = avg(moods);
-    lines.push(m >= 4 ? 'อารมณ์โดยรวมสดใสดี 😄' : m >= 3 ? 'อารมณ์โดยรวมกลางๆ สบายๆ 🙂' : 'ใจเหนื่อยไปหลายวัน ขอกอดทีนึงนะ 🫂');
+    lines.push(m >= 4 ? 'อารมณ์โดยรวมสดใสดี' : m >= 3 ? 'อารมณ์โดยรวมกลางๆ สบายๆ' : 'ใจเหนื่อยไปหลายวัน ขอกอดทีนึงนะ');
   }
-  if (easy) lines.push(`มีวันที่ไม่ไหว ${easy} วัน และเธอก็ใจดีกับตัวเองพอที่จะพัก นั่นแหละเก่งแล้ว 🫶`);
+  if (easy) lines.push(`มีวันที่ไม่ไหว ${easy} วัน และเธอก็ใจดีกับตัวเองพอที่จะพัก นั่นแหละเก่งแล้ว`);
   if (wIn.length >= 2) {
     const diff = round1(wIn[wIn.length - 1].kg - wIn[0].kg);
     if (diff !== 0) lines.push(`น้ำหนักขยับ ${diff > 0 ? '+' : '−'}${Math.abs(diff)} กก. (ขึ้นลงรายวันเป็นเรื่องปกตินะ)`);
   }
 
   const planned = profile.days.length;
-  if (n >= Math.min(3, planned)) lines.push('สัปดาห์หน้าไปต่อแบบนี้ได้เลย แมวภูมิใจมาก 🌸');
-  else if (n > 0) lines.push('สัปดาห์หน้าลองเพิ่มอีกแค่ครั้งเดียวพอ ไม่ต้องหักโหม 🐢');
-  else lines.push('สัปดาห์หน้าเริ่มจากเดินเล่น 10 นาทีก็พอ ค่อยเป็นค่อยไป 🐾');
+  if (n >= Math.min(3, planned)) lines.push('สัปดาห์หน้าไปต่อแบบนี้ได้เลย แมวภูมิใจมาก');
+  else if (n > 0) lines.push('สัปดาห์หน้าลองเพิ่มอีกแค่ครั้งเดียวพอ ไม่ต้องหักโหม');
+  else lines.push('สัปดาห์หน้าเริ่มจากเดินเล่น 10 นาทีก็พอ ค่อยเป็นค่อยไป');
 
   return {
     lines,
