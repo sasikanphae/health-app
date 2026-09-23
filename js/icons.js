@@ -47,6 +47,18 @@ const P = {
   sound: '<path d="M5 9.5h3l4-3.5v12l-4-3.5H5Z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
   cloud: '<path d="M7 18a4 4 0 0 1-.4-8A5.5 5.5 0 0 1 17.3 9 4.5 4.5 0 0 1 17 18Z"/>',
   treadmill: '<path d="M3 17h15l3-9M16 11h4M5 20h13"/>',
+  briefcase: '<rect x="3.5" y="7.5" width="17" height="12" rx="2"/><path d="M9 7.5V5.5h6v2M3.5 12.5h17"/>',
+  door: '<path d="M6 20V4h10v16M3 20h18M13 12h.5"/><path d="M16 7h3v13"/>',
+  receipt: '<path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5L6 21Z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  pill: '<rect x="3.5" y="9" width="17" height="6" rx="3" transform="rotate(-45 12 12)"/><path d="m9.9 9.9 4.2 4.2"/>',
+  bus: '<rect x="5" y="4" width="14" height="13" rx="2"/><path d="M5 11h14M8 17v2.5M16 17v2.5"/><circle cx="8.5" cy="14" r=".6"/><circle cx="15.5" cy="14" r=".6"/>',
+  pen: '<path d="M4 20l1-4L16 5l3 3L8 19Z"/><path d="M14 7l3 3"/>',
+  cart: '<path d="M3 4h2.5l2 11h10l2-8H7"/><circle cx="9" cy="19" r="1.3"/><circle cx="16" cy="19" r="1.3"/>',
+  medic: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/>',
+  wallet: '<path d="M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4Z"/><path d="M4 7l11-3v3M15 13.5h2"/>',
+  clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>',
+  list: '<path d="M9 7h11M9 12h11M9 17h11"/><circle cx="5" cy="7" r=".7"/><circle cx="5" cy="12" r=".7"/><circle cx="5" cy="17" r=".7"/>',
+  trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/>',
 };
 
 // Mood faces 1..5: from a tired frown to a small smile, all in the same thin line.

@@ -62,6 +62,7 @@ export function emptyDay() {
     sets: {}, // exercise id -> sets finished
     altSwaps: {}, // machine id -> alternative exercise id
     prep: [], // gym-bag checklist ids ticked today
+    leave: {}, // leave-the-house list id -> item ids ticked today (the gym bag uses prep)
     steps: null, // steps walked, typed in from the phone's step counter
     mood: null, // 1..5, one tap on the Today screen
     easy: false, // "วันนี้ไม่ไหว": every target softened for this day only
@@ -142,7 +143,20 @@ function reminderSatisfied(r, at, ctx) {
 // Only the latest-passed reminder of each type is considered, so snoozing or
 // skipping the 14:00 water reminder doesn't bring the 10:00 one back.
 // log: { [reminderId]: { snoozeUntil?, skipped?, notifiedAt? } } for that day.
-export function dueReminders({ reminders, day, key, now, log = {}, waterGoal, workoutPending }) {
+// Snooze/skip/repeat for one reminder today. null = stay quiet for now;
+// otherwise notify says whether to (re)send a notification.
+// repeatMs > 0: a reminder that was sent but not acted on (the notification
+// was dismissed or ignored) is sent again after that long.
+export function reminderState(s = {}, now, repeatMs = 0) {
+  if (s.skipped) return null;
+  if (s.snoozeUntil && now < s.snoozeUntil) return null;
+  const notify = !s.notifiedAt
+    || (s.snoozeUntil != null && s.notifiedAt < s.snoozeUntil)
+    || (repeatMs > 0 && now - s.notifiedAt >= repeatMs);
+  return { notify };
+}
+
+export function dueReminders({ reminders, day, key, now, log = {}, waterGoal, workoutPending, repeatMs = 0 }) {
   const ctx = { day, waterGoal, workoutPending };
   const latest = new Map();
   for (const r of reminders) {
@@ -155,12 +169,9 @@ export function dueReminders({ reminders, day, key, now, log = {}, waterGoal, wo
 
   const due = [];
   for (const { reminder, at } of latest.values()) {
-    const s = log[reminder.id] ?? {};
-    if (s.skipped) continue;
-    if (s.snoozeUntil && now < s.snoozeUntil) continue;
-    if (reminderSatisfied(reminder, at, ctx)) continue;
-    const notify = !s.notifiedAt || (s.snoozeUntil != null && s.notifiedAt < s.snoozeUntil);
-    due.push({ reminder, at, notify });
+    const st = reminderState(log[reminder.id], now, repeatMs);
+    if (!st || reminderSatisfied(reminder, at, ctx)) continue;
+    due.push({ reminder, at, notify: st.notify });
   }
   return due.sort((a, b) => a.at - b.at);
 }

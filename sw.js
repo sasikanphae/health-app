@@ -1,5 +1,5 @@
 // Offline support (network first, cache fallback) and notification button handling.
-const CACHE = 'health-app-v6';
+const CACHE = 'health-app-v7';
 const ASSETS = [
   './',
   'index.html',
@@ -15,6 +15,8 @@ const ASSETS = [
   'js/lunar.js',
   'js/sound.js',
   'js/lifts.js',
+  'js/life.js',
+  'js/life-view.js',
   'js/meals.js',
   'js/planner.js',
   'js/store.js',
@@ -58,17 +60,27 @@ self.addEventListener('fetch', (e) => {
 // window; if none is open, the app is opened with the action in the URL.
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const { id, type } = e.notification.data ?? {};
+  const { id, type, ref } = e.notification.data ?? {};
   if (!id) return;
   const action = e.action || 'open';
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     if (wins.length) {
-      wins[0].postMessage({ kind: 'reminder', id, type, action });
+      wins[0].postMessage({ kind: 'reminder', id, type, ref, action });
       if (action === 'open') await wins[0].focus();
       return;
     }
     const url = `./?r=${encodeURIComponent(id)}&t=${encodeURIComponent(type)}&a=${action}`;
     await self.clients.openWindow(url);
   })());
+});
+
+// Swiped away without tapping: tell an open window so it can ask again later
+// (Settings › เตือนซ้ำ). With no window open, the page repeats it on its own
+// the next time it runs.
+self.addEventListener('notificationclose', (e) => {
+  const { id, type, ref } = e.notification.data ?? {};
+  if (!id) return;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then((wins) => wins[0]?.postMessage({ kind: 'reminder', id, type, ref, action: 'dismissed' })));
 });

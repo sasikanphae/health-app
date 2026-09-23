@@ -14,6 +14,8 @@ import {
 } from './gym-data.js';
 import { mascot, machineArt, muscleMap } from './art.js';
 import { icon, moodIcon } from './icons.js';
+import { lifeDue } from './life.js';
+import { createLife } from './life-view.js';
 import {
   ACTIVITY_LEVELS, WEIGHT_GOALS, SEXES, LIMITS, bmi, bmiInfo, calorieTarget, waterGoal, stepGoal,
   logWeight, latestWeight, weightTrend, isValidBody, defaultWeightGoal, daysSince,
@@ -514,12 +516,16 @@ function renderSheet() {
   const el = $('#sheet');
   el.hidden = !s;
   document.body.style.overflow = s ? 'hidden' : '';
+  document.body.classList.toggle('sheet-open', !!s);
   if (!s) return;
   $('#sheet-body').innerHTML = {
     onboard: renderOnboard,
     checkin: renderCheckin,
     session: renderSession,
     exercise: renderExercise,
+    leave: life.renderLeave,
+    event: life.renderEvent,
+    bill: life.renderBill,
   }[s.type](s);
 }
 
@@ -1011,7 +1017,12 @@ function renderToday() {
     if (it.id === 'workout') return t.done;
     return !!t.day.ticks[it.id];
   };
-  const items = timeline.map((it) => ({ ...it, done: isDone(it) }));
+  // Health items and the user's own to-dos, appointments and bills in one list:
+  // untimed life items first, then everything by time.
+  const lifeItems = life.todayItems(t.key);
+  const timed = [...timeline.map((it) => ({ ...it, done: isDone(it) })), ...lifeItems.filter((i) => i.time)]
+    .sort((a, b) => a.time.localeCompare(b.time));
+  const items = [...lifeItems.filter((i) => !i.time), ...timed];
   const done = items.filter((i) => i.done).length;
   const nowIdx = items.findIndex((i) => !i.done);
   const mood = t.day.easy ? 'sleepy' : t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal';
@@ -1059,11 +1070,16 @@ function renderToday() {
     ${stepsRow(t, pers)}
     ${moodRow(t)}
     </div>
+    <div class="tools">
+      <button class="tool" data-act="leaveOpen">${icon('door')}<span>ออกจากบ้าน</span></button>
+      <button class="tool" data-act="eventNew" data-kind="personal">${icon('plus')}<span>เพิ่มงาน/นัด</span></button>
+      <button class="tool" data-act="expQuick">${icon('wallet')}<span>จดรายจ่าย</span></button>
+    </div>
     ${easyCard(t, pers, goal)}
     ${holyCard(t)}
     ${todayCards(t)}
     ${hasGym && !t.done && !t.day.easy ? `<div class="gym-cta"><button class="btn lotus big block" data-act="goGym">${icon('dumbbell', { size: 20 })} วันนี้ไปยิม</button></div>` : ''}
-    <ol class="timeline">${items.map((it, i) => timelineItem(it, t, meals, i === nowIdx)).join('')}</ol>`;
+    <ol class="timeline">${items.map((it, i) => (it.life ? life.timelineItem(it, i === nowIdx) : timelineItem(it, t, meals, i === nowIdx))).join('')}</ol>`;
 }
 
 const MOODS = [
@@ -1328,16 +1344,9 @@ function renderFood() {
     </div>`;
   }).join('');
 
-  // Shopping list: home-cooked meals from today to the end of the week.
-  const ws = weekStart(t.key);
-  const rest = t.plan.week.filter((d) => d.key >= t.key)
-    .map((d) => mealsFor(d.key, d.isToday ? t.session : d.session).meals);
-  const list = shoppingList(rest);
-  const ticked = new Set(state.shopping[ws] ?? []);
-  const row = (i) => `<button class="check" role="checkbox" aria-checked="${ticked.has(i.name)}" data-act="shopToggle" data-name="${esc(i.name)}">
-    <span class="box">${ticked.has(i.name) ? '✓' : ''}</span><span class="label">${esc(i.name)}</span><span class="count muted small">${i.count} มื้อ</span></button>`;
-  const main = list.filter((i) => !i.staple);
-  const staples = list.filter((i) => i.staple);
+  const shop = planShopping();
+  const ticked = new Set(state.shopping[shop.ws] ?? []);
+  const toBuy = shop.items.filter((i) => !i.staple && !ticked.has(i.name)).length + state.shopList.filter((c) => !c.done).length;
 
   $('#view-food').innerHTML = `
     <div class="view-head"><h1>แผนอาหาร</h1></div>
@@ -1350,11 +1359,18 @@ function renderFood() {
     ${pers ? `<p class="small muted">เป้าประมาณ ${pers.cal.kcal.toLocaleString('th-TH')} kcal/วัน ไม่ต้องนับ กินตามแผนนี้ก็ใกล้เคียงแล้ว</p>` : ''}
     ${food.allergies.length ? `<p class="small muted">ร้านตามสั่งมักใส่ซอสหอยนางรม น้ำปลา หรือถั่ว บอกร้านทุกครั้งว่าแพ้${food.allergies.map((a) => ALLERGIES[a]).join(', ')}</p>` : ''}
     ${cards}
-    <div class="card">
-      <h2>ของที่ต้องซื้อ (ถึงสิ้นสัปดาห์)</h2>
-      ${main.length ? main.map(row).join('') : '<p class="muted">สัปดาห์นี้ไม่ต้องซื้อของเข้าบ้านเลย ซื้อกินสบายๆ</p>'}
-      ${staples.length ? `<h3>ของติดครัว (มีแล้วข้ามได้)</h3>${staples.map(row).join('')}` : ''}
-    </div>`;
+    <button class="card story-teaser" data-act="openShop">
+      <span class="card-ic">${icon('cart', { size: 20 })}</span>
+      <span class="grow"><span class="head">ของที่ต้องซื้อ</span><br><span class="small muted">${toBuy ? `เหลือ ${toBuy} อย่าง · รวมของใช้ในบ้านไว้ด้วย` : 'ซื้อครบแล้ว'}</span></span>
+      <span class="chev">›</span></button>`;
+}
+
+// Ingredients for home-cooked meals from today to the end of the week.
+function planShopping() {
+  const t = computeToday();
+  const rest = t.plan.week.filter((d) => d.key >= t.key)
+    .map((d) => mealsFor(d.key, d.isToday ? t.session : d.session).meals);
+  return { items: shoppingList(rest), ws: weekStart(t.key) };
 }
 
 function renderGym() {
@@ -1719,6 +1735,9 @@ function renderSettings() {
       ${perm === 'default' ? '<button class="btn primary block" data-act="notifyEnable">เปิดการแจ้งเตือน</button>' : ''}
       ${perm === 'granted' ? '<button class="btn soft block" data-act="notifyTest">ลองส่งแจ้งเตือน</button>' : ''}
       <p class="muted small">เด้งเตือนขณะที่แอปเปิดอยู่หรือพับไว้ ถ้าปิดแอปไป รายการที่ถึงเวลาจะรออยู่ด้านบนตอนเปิดครั้งถัดไป</p>
+      <label class="rem-row"><span class="grow">เตือนซ้ำ ถ้าปิดแจ้งเตือนไปโดยยังไม่ได้ทำ<br><span class="small muted">ใช้กับทุกการเตือน รวมถึงนัดหมายและบิล</span></span>
+        <select data-change="repeatMin" aria-label="เตือนซ้ำหลังจาก" style="width:auto">${REPEAT_OPTIONS.map((m) =>
+          `<option value="${m}" ${(s.repeatMin || 0) === m ? 'selected' : ''}>${m ? `อีก ${repeatLabel(m)}` : 'ไม่เตือนซ้ำ'}</option>`).join('')}</select></label>
       ${reminders.map((r) => `<div class="rem-row">
         <span class="tl-emoji">${icon(REMINDER_TEXT[r.type].icon)}</span>
         <label class="grow rem-time"><span class="small muted">${REMINDER_TEXT[r.type].label}</span>
@@ -1746,34 +1765,54 @@ function renderSettings() {
 }
 
 // ---------- reminders ----------
+// Health reminders and life ones (appointments, to-dos, bills) share the same
+// snooze / skip / repeat log. Each item: { id, at, notify, reminder? | kind+ref }.
 function currentDue(now = Date.now()) {
   const t = computeToday();
-  return dueReminders({
+  const log = state.reminderLog[t.key] ?? {};
+  const repeatMs = (state.settings.repeatMin || 0) * 60_000;
+  const health = dueReminders({
     reminders: state.settings.reminders,
     day: t.day,
     key: t.key,
     now,
-    log: state.reminderLog[t.key] ?? {},
+    log,
     waterGoal: waterGoalToday(t),
     workoutPending: !!t.session && !t.done && !t.day.easy,
-  });
+    repeatMs,
+  }).map((d) => ({ id: d.reminder.id, at: d.at, notify: d.notify, reminder: d.reminder }));
+  const lifeItems = lifeDue({ events: state.events, bills: state.bills, today: t.key, now, log, repeatMs }).filter(life.alive);
+  return [...health, ...lifeItems].sort((a, b) => a.at - b.at);
 }
 
-function alertHtml(r) {
-  const x = REMINDER_TEXT[r.type];
-  const main = {
-    water: '<button class="btn primary big block" data-act="water" data-n="1">ดื่มแล้ว +1 แก้ว</button>',
-    checkin: '<button class="btn primary big block" data-act="checkin">เริ่มเช็กอิน</button>',
-    workout: '<button class="btn lotus big block" data-act="startFromAlert">ไปกันเลย</button>',
-  }[r.type];
+// Text and main button for any due item.
+function dueInfo(d) {
+  if (d.reminder) {
+    const r = d.reminder;
+    return {
+      text: REMINDER_TEXT[r.type].text,
+      time: `${r.time} น.`,
+      main: {
+        water: '<button class="btn primary big block" data-act="water" data-n="1">ดื่มแล้ว +1 แก้ว</button>',
+        checkin: '<button class="btn primary big block" data-act="checkin">เริ่มเช็กอิน</button>',
+        workout: '<button class="btn lotus big block" data-act="startFromAlert">ไปกันเลย</button>',
+      }[r.type],
+    };
+  }
+  return life.alertInfo(d);
+}
+
+function alertHtml(d, more) {
+  const x = dueInfo(d);
   return `<div class="alert" role="alert">
-    <div class="row between"><span class="alert-title">${x.text}</span><span class="muted small">${r.time} น.</span></div>
-    <div style="margin-top:8px">${main}</div>
+    <div class="row between"><span class="alert-title">${esc(x.text)}</span><span class="muted small nowrap">${x.time}</span></div>
+    ${x.main ? `<div style="margin-top:8px">${x.main}</div>` : ''}
     <div class="actions">
-      <button class="btn soft" data-act="snooze" data-id="${r.id}" data-min="10">เลื่อน 10 นาที</button>
-      <button class="btn soft" data-act="snooze" data-id="${r.id}" data-min="60">1 ชั่วโมง</button>
-      <button class="btn ghost" data-act="skip" data-id="${r.id}">ข้ามครั้งนี้</button>
+      <button class="btn soft" data-act="snooze" data-id="${esc(d.id)}" data-min="10">เลื่อน 10 นาที</button>
+      <button class="btn soft" data-act="snooze" data-id="${esc(d.id)}" data-min="60">1 ชั่วโมง</button>
+      <button class="btn ghost" data-act="skip" data-id="${esc(d.id)}">ข้ามครั้งนี้</button>
     </div>
+    ${more ? `<p class="small muted alert-more">ยังมีอีก ${more} เรื่องรออยู่ในรายการวันนี้</p>` : ''}
   </div>`;
 }
 
@@ -1781,7 +1820,7 @@ function alertHtml(r) {
 // greets the user with a wall of "you haven't done this" cards.
 function renderAlerts(due = currentDue()) {
   const latest = due[due.length - 1];
-  $('#alerts').innerHTML = state.profile && latest ? alertHtml(latest.reminder) : '';
+  $('#alerts').innerHTML = state.profile && latest ? alertHtml(latest, due.length - 1) : '';
 }
 
 function reminderEntry(id) {
@@ -1789,12 +1828,12 @@ function reminderEntry(id) {
   return (log[id] ??= {});
 }
 
-function snooze(id, minutes) {
+function snooze(id, minutes, { quiet = false } = {}) {
   const until = Date.now() + minutes * 60_000;
   reminderEntry(id).snoozeUntil = until;
   save();
   renderAlerts();
-  toast(`โอเค จะเตือนอีกทีตอน ${hhmm(until)} น.`);
+  if (!quiet) toast(`โอเค จะเตือนอีกทีตอน ${hhmm(until)} น.`);
 }
 
 function skip(id) {
@@ -1808,24 +1847,31 @@ function skip(id) {
   });
 }
 
-function notify(r) {
+function notify(d) {
   if (document.visibilityState === 'visible') {
     navigator.vibrate?.(200);
     return;
   }
   if (!swReg || !('Notification' in window) || Notification.permission !== 'granted') return;
-  const x = REMINDER_TEXT[r.type];
+  const x = dueInfo(d);
+  const type = d.reminder?.type ?? d.kind;
   const actions = [{ action: 'snooze', title: 'เลื่อน 10 นาที' }];
-  if (r.type === 'water') actions.unshift({ action: 'water', title: 'ดื่มแล้ว +1' });
+  if (type === 'water') actions.unshift({ action: 'water', title: 'ดื่มแล้ว +1' });
+  if (type === 'bill') actions.unshift({ action: 'done', title: 'จ่ายแล้ว' });
+  if (type === 'event' && d.stage !== 'tomorrow') actions.unshift({ action: 'done', title: 'ทำแล้ว' });
+  const repeat = state.settings.repeatMin;
   swReg.showNotification(x.text, {
-    body: 'แตะเพื่อเปิด หรือกดเลื่อนเตือนได้',
-    tag: r.id,
+    body: repeat ? `ถ้าปิดไปโดยยังไม่ได้ทำ แมวจะเตือนอีกครั้งใน ${repeatLabel(repeat)}` : 'แตะเพื่อเปิด หรือกดเลื่อนเตือนได้',
+    tag: d.id,
     renotify: true,
     icon: 'icons/icon.svg',
-    data: { id: r.id, type: r.type },
+    data: { id: d.id, type, ref: d.ref ?? null },
     actions,
   }).catch(() => {});
 }
+
+const REPEAT_OPTIONS = [0, 15, 30, 60, 120];
+const repeatLabel = (m) => (m >= 60 ? `${m / 60} ชั่วโมง` : `${m} นาที`);
 
 function tick() {
   const key = todayKey();
@@ -1840,8 +1886,8 @@ function tick() {
   let changed = false;
   for (const d of due) {
     if (!d.notify) continue;
-    reminderEntry(d.reminder.id).notifiedAt = Date.now();
-    notify(d.reminder);
+    reminderEntry(d.id).notifiedAt = Date.now();
+    notify(d);
     changed = true;
   }
   if (changed) save();
@@ -1873,9 +1919,20 @@ function checkRewards() {
   if (changed) save();
 }
 
-function handleReminderAction({ id, type, action }) {
+function handleReminderAction({ id, type, action, ref }) {
   if (action === 'snooze') return snooze(id, 10);
   if (action === 'water') return addWater(1);
+  // Notification swiped away without doing it: ask again after the repeat time.
+  if (action === 'dismissed') {
+    if (state.settings.repeatMin) snooze(id, state.settings.repeatMin, { quiet: true });
+    return;
+  }
+  const refId = ref ?? id.split(':')[1];
+  if (action === 'done' && type === 'bill') return life.actions.billPaid({ id: refId });
+  if (action === 'done' && type === 'event') {
+    if (!state.events.find((e) => e.id === refId)?.done) life.actions.evTick({ id: refId });
+    return;
+  }
   showView('today');
   if (type === 'checkin' && !getDay(todayKey()).checkin) openCheckin();
   if (type === 'workout') startSession({ gym: computeToday().session?.activity === 'gym' });
@@ -1904,9 +1961,17 @@ function render() {
   renderGym();
   renderMe();
   renderSettings();
+  life.renderLife();
   renderAlerts();
   checkRewards();
 }
+
+const life = createLife({
+  state, ui, esc, save, render, renderSheet, toast, pushSheet, replaceSheet, popSheet, topSheet, sheetTop,
+  todayKey, getDay, editDay, sfx, newId, planShopping, showView,
+  tick: () => tick(),
+  dateKeyOf: (ms) => dateKey(new Date(ms)),
+});
 
 // ---------- events ----------
 const actions = {
@@ -2210,14 +2275,9 @@ const actions = {
     ui.foodDay = d.key;
     renderFood();
   },
-  shopToggle: (d) => {
-    const ws = weekStart(todayKey());
-    const list = new Set(state.shopping[ws] ?? []);
-    if (list.has(d.name)) list.delete(d.name);
-    else list.add(d.name);
-    state.shopping = { [ws]: [...list] }; // only this week matters
-    save();
-    renderFood();
+  openShop: () => {
+    ui.lifeTab = 'shop';
+    showView('life');
   },
 
   // settings
@@ -2284,6 +2344,11 @@ function replaceState(next) {
 }
 
 const changes = {
+  repeatMin: (el) => {
+    state.settings.repeatMin = Number(el.value);
+    save();
+    toast(state.settings.repeatMin ? `จะเตือนซ้ำทุก ${repeatLabel(state.settings.repeatMin)} จนกว่าจะทำ` : 'ปิดการเตือนซ้ำแล้ว');
+  },
   photo: async (el) => {
     const file = el.files?.[0];
     if (!file) return;
@@ -2395,6 +2460,9 @@ const forms = {
   },
 };
 
+Object.assign(actions, life.actions);
+Object.assign(forms, life.forms);
+
 document.addEventListener('click', (e) => {
   ui.userActed = true;
   const el = e.target.closest('[data-act]');
@@ -2402,7 +2470,8 @@ document.addEventListener('click', (e) => {
   actions[el.dataset.act]?.(el.dataset, el, e);
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && ui.sheets.length) popSheet();
+  if (e.key === 'Escape' && !$('#quicknote').hidden) life.closeNote();
+  else if (e.key === 'Escape' && ui.sheets.length) popSheet();
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"][data-act]')) {
     e.preventDefault();
     e.target.click();
@@ -2435,8 +2504,9 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---------- start ----------
-const TAB_ICONS = { today: 'lotus', week: 'calendar', food: 'bowl', gym: 'dumbbell', me: 'user' };
+const TAB_ICONS = { today: 'lotus', week: 'calendar', food: 'bowl', gym: 'dumbbell', life: 'list', me: 'user' };
 for (const b of document.querySelectorAll('.tabs [data-view]')) b.insertAdjacentHTML('afterbegin', icon(TAB_ICONS[b.dataset.view]));
+$('#fab-note').innerHTML = icon('pen');
 if (useHistory) history.replaceState(null, '');
 render();
 if (!state.profile) openOnboard();

@@ -1,5 +1,6 @@
 import { emptyDay, dateKey, addDays } from './health.js';
 import { GYM_BAG } from './gym-data.js';
+import { DEFAULT_LEAVE_LISTS } from './life.js';
 
 export const STORAGE_KEY = 'health-app:v3';
 const V2_KEY = 'health-app:v2';
@@ -30,6 +31,7 @@ export function defaultState() {
       waterGoal: 8,
       sound: true, // bell / wooden-fish sounds when something is done
       holyDays: true, // show วันพระ and suggest calm activities on those days
+      repeatMin: 60, // re-send a reminder that was dismissed without being done (0 = off)
       reminders: [
         { id: 'r-checkin', type: 'checkin', time: '07:30', enabled: true },
         { id: 'r-water1', type: 'water', time: '10:00', enabled: true },
@@ -46,7 +48,20 @@ export function defaultState() {
     insightSeen: {}, // pattern id -> date the user said "got it"
     storySeen: null, // week start key of the last weekly story the user opened
     reminderLog: {},
+    // everyday helper
+    leaveLists: defaultLeaveLists(), // destinations other than the gym (its bag is `checklist`)
+    events: [], // [{ id, kind: work|appt|personal, title, date, time|null, apptType?, done, doneAt? }]
+    bills: [], // [{ id, title, day, amount|null, lead, createdOn, paid: { 'YYYY-MM': date } }]
+    expenses: [], // [{ id, date, cat, amount, at }]
+    notes: [], // [{ id, text, at, editedAt? }]
+    shopList: [], // household items added by hand: [{ id, text, done }]
   };
+}
+
+export function defaultLeaveLists() {
+  return DEFAULT_LEAVE_LISTS.map((l) => ({
+    id: l.id, name: l.name, icon: l.icon, items: l.items.map((text, i) => ({ id: `${l.id}${i + 1}`, text })),
+  }));
 }
 
 // Fill in anything missing so older or hand-edited data keeps working.
@@ -69,6 +84,11 @@ export function normalize(raw) {
     state.days[key] = { ...emptyDay(), ...day };
   }
   if (!Array.isArray(state.weights)) state.weights = [];
+  for (const k of ['events', 'bills', 'expenses', 'notes', 'shopList']) {
+    if (!Array.isArray(state[k])) state[k] = [];
+  }
+  if (!Array.isArray(state.leaveLists)) state.leaveLists = defaultLeaveLists();
+  for (const b of state.bills) b.paid ??= {};
   if (!Array.isArray(state.rewards)) state.rewards = [];
   if (!state.insightSeen || typeof state.insightSeen !== 'object') state.insightSeen = {};
   if (!state.lifts || typeof state.lifts !== 'object') state.lifts = {};

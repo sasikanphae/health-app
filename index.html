@@ -25,6 +25,7 @@
     <section id="view-food" class="view" aria-label="แผนอาหาร"></section>
     <section id="view-gym" class="view" aria-label="ยิม"></section>
     <section id="view-me" class="view" aria-label="ของฉัน"></section>
+    <section id="view-life" class="view" aria-label="ธุระ"></section>
     <section id="view-settings" class="view" aria-label="ตั้งค่า"></section>
   </main>
 
@@ -33,6 +34,7 @@
     <button role="tab" data-act="tab" data-view="week" aria-selected="false"><span>ตาราง</span></button>
     <button role="tab" data-act="tab" data-view="food" aria-selected="false"><span>อาหาร</span></button>
     <button role="tab" data-act="tab" data-view="gym" aria-selected="false"><span>ยิม</span></button>
+    <button role="tab" data-act="tab" data-view="life" aria-selected="false"><span>ธุระ</span></button>
     <button role="tab" data-act="tab" data-view="me" aria-selected="false"><span>ของฉัน</span></button>
   </nav>
 
@@ -43,6 +45,17 @@
 
   <!-- Rest timer, stays visible above everything while counting down -->
   <div id="timer" class="timer" role="timer" aria-live="off" hidden></div>
+
+  <!-- Quick note: reachable from every page, opens over the current screen -->
+  <button id="fab-note" class="fab" type="button" data-act="noteOpen" aria-label="จดโน้ตเร็ว"></button>
+  <div id="quicknote" class="quicknote" role="dialog" aria-label="จดโน้ตเร็ว" hidden>
+    <form data-form="note">
+      <div class="row between"><span class="head qn-title">จดโน้ตเร็ว</span>
+        <button type="button" class="icon-btn" data-act="noteClose" aria-label="ปิด">✕</button></div>
+      <textarea name="text" rows="4" maxlength="2000" placeholder="พิมพ์อะไรก็ได้ เดี๋ยวค่อยกลับมาดู"></textarea>
+      <button class="btn primary block">บันทึก</button>
+    </form>
+  </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite">
     <span id="toast-text"></span><button id="toast-undo" type="button" hidden>เลิกทำ</button>
