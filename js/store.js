@@ -1,6 +1,7 @@
 import { emptyDay, dateKey, addDays } from './health.js';
 import { GYM_BAG } from './gym-data.js';
 import { DEFAULT_LEAVE_LISTS } from './life.js';
+import { defaultPlaces } from './equipment.js';
 
 export const STORAGE_KEY = 'health-app:v3';
 const V2_KEY = 'health-app:v2';
@@ -35,6 +36,8 @@ export function defaultState() {
       learn: true, // pattern engine + habits (on-device only); can be turned off in Privacy
       mic: true, // show the microphone button (speech goes through the browser's own service)
       travel: { on: false }, // travel mode: { on, since, until|null }
+      gymPlace: 'gym', // which place a gym day happens at
+      homePlace: 'home', // which place a home workout happens at
       reminders: [
         { id: 'r-checkin', type: 'checkin', time: '07:30', enabled: true },
         { id: 'r-water1', type: 'water', time: '10:00', enabled: true },
@@ -58,6 +61,7 @@ export function defaultState() {
     expenses: [], // [{ id, date, cat, amount, at }]
     notes: [], // [{ id, text, at, editedAt? }]
     shopList: [], // household items added by hand: [{ id, text, done }]
+    places: defaultPlaces(), // "อุปกรณ์ของฉัน": [{ id, name, kind: home|gym, equip: [ids], configured }]
     inbox: [], // "โยนไว้ก่อน" history: [{ id, raw, item, ref: { type, id, date? }, at }]
     lastSpecial: null, // date of the last "special day" suggestion
     wrappedSeen: null, // 'YYYY-MM' of the last monthly story opened from Today
@@ -94,6 +98,7 @@ export function normalize(raw) {
     if (!Array.isArray(state[k])) state[k] = [];
   }
   if (!Array.isArray(state.leaveLists)) state.leaveLists = defaultLeaveLists();
+  if (!Array.isArray(state.places) || !state.places.length) state.places = defaultPlaces();
   for (const b of state.bills) b.paid ??= {};
   if (!Array.isArray(state.rewards)) state.rewards = [];
   if (!state.insightSeen || typeof state.insightSeen !== 'object') state.insightSeen = {};

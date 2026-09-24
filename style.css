@@ -652,3 +652,25 @@ body.sheet-open .fab, body.timer-on .fab { display: none; }
 .rv-card .chip { flex: none; }
 .rv-card { grid-template-columns: minmax(0, 1fr); }
 .rv-card > .row { min-width: 0; }
+
+/* exercise library + equipment */
+.lib-filter .chips { margin: 4px 0 8px; }
+.body-pick .muscle-map { max-width: 300px; margin: 0 auto; display: block; }
+.mm-tap { cursor: pointer; }
+.mm-tap:focus { outline: none; }
+.mm-tap:focus-visible * { stroke: var(--accent); stroke-width: 1.5; }
+.mm-idle.mm-tap:hover * { fill: var(--tint); }
+.lib-list { display: grid; gap: 8px; }
+.lib-row {
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; font: inherit; color: inherit;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
+}
+.lib-row .thumb { width: 64px; aspect-ratio: 3 / 2; display: grid; place-items: center; flex: none; color: var(--ink); overflow: hidden; border-radius: 6px; }
+.lib-row .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.lib-row.unavailable { opacity: .55; }
+.place-row { display: flex; align-items: center; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+.place-row .chips { flex: 1; }
+.plain-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; font: inherit; color: inherit; }
+.plain-row:last-child { border-bottom: 0; }
+.mm-tap { pointer-events: all; }
+.mm-idle.mm-tap * { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }

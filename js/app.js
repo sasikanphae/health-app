@@ -19,6 +19,9 @@ import {
   arrangeDay, weatherAdapt, travelProfile, travelSession, postponable, isOutdoor, WEATHER, WORKOUT_MINUTES, EVENT_MINUTES,
 } from './arrange.js';
 import { createInbox } from './inbox-view.js';
+import {
+  resolveItems, playableSubstitutes, canDo, allExercises, filterLibrary, EQUIPMENT, EQUIP_GROUPS, needsText,
+} from './equipment.js';
 import { createLife } from './life-view.js';
 import {
   ACTIVITY_LEVELS, WEIGHT_GOALS, SEXES, LIMITS, bmi, bmiInfo, calorieTarget, waterGoal, stepGoal,
@@ -271,6 +274,20 @@ function intensityChip(s) {
 // Exercise id actually shown for a session item (after "machine is taken" swaps).
 const currentId = (day, itemId) => day.altSwaps[itemId] ?? itemId;
 
+// ---------- equipment: where today's workout happens ----------
+const TRAVEL_PLACE = { id: 'travel', name: 'ระหว่างเดินทาง', kind: 'home', equip: [], configured: true };
+function placeFor(session) {
+  if (travelOn()) return TRAVEL_PLACE;
+  const kind = session?.activity === 'gym' ? 'gym' : 'home';
+  const want = state.settings[kind === 'gym' ? 'gymPlace' : 'homePlace'];
+  return state.places.find((p) => p.id === want) ?? state.places.find((p) => p.kind === kind) ?? state.places[0] ?? TRAVEL_PLACE;
+}
+// Today's exercises, only ones this place's equipment allows.
+function resolvedPlan(session) {
+  return resolveItems(sessionItems(session), placeFor(session).equip, { focus: session?.focus, kind: session?.kind });
+}
+const planItems = (t) => resolvedPlan(t.session).items;
+
 function rxFor(day, item, session) {
   const info = exerciseInfo(currentId(day, item.id));
   const goal = profile().goal;
@@ -396,14 +413,14 @@ function startSession({ gym = false } = {}) {
 function finishSet(itemId) {
   const t = computeToday();
   const day = editDay(t.key);
-  const item = sessionItems(t.session).find((i) => i.id === itemId);
+  const item = planItems(t).find((i) => i.id === itemId);
   if (!item) return;
   const rx = rxFor(day, item, t.session);
   day.sets[itemId] = Math.min(rx.sets, setsDone(day, itemId) + 1);
   autoSaveMachineForm();
   logLift(currentId(day, itemId), day.sets[itemId], rx.sets, t.session.intensity);
   save();
-  const allDone = sessionItems(t.session).every((i) => itemDone(day, i, t.session));
+  const allDone = planItems(t).every((i) => itemDone(day, i, t.session));
   if (allDone) {
     stopTimer();
     completeWorkout(t.session);
@@ -553,6 +570,7 @@ function renderSheet() {
     session: renderSession,
     exercise: renderExercise,
     arrange: renderArrange,
+    equip: renderEquip,
     wrapped: renderWrapped,
     review: inbox.renderReview,
     leave: life.renderLeave,
@@ -802,8 +820,11 @@ function renderSession() {
   const t = computeToday();
   const s = t.session;
   if (!s) return `${sheetTop('วันนี้')}<p class="center">วันนี้ไม่มีโปรแกรม พักได้เต็มที่เลย</p>`;
-  const items = sessionItems(s);
+  const plan = resolvedPlan(s);
+  const { items } = plan;
+  const place = placeFor(s);
   const isGym = s.activity === 'gym';
+  const samePlaces = state.places.filter((p) => p.kind === place.kind);
   const doneCount = items.filter((i) => itemDone(t.day, i, s)).length;
   const prep = isGym ? `
     <details class="card"><summary class="head">ของครบยัง? (${state.checklist.filter((c) => t.day.prep.includes(c.id)).length}/${state.checklist.length})</summary>
@@ -819,7 +840,8 @@ function renderSession() {
     const rx = rxFor(t.day, item, s);
     const done = itemDone(t.day, item, s);
     const progress = rx.timed ? `${rx.minutes} นาที` : `${setsDone(t.day, item.id)}/${rx.sets}`;
-    const swapped = id !== item.id ? ' <span class="badge lotus">ท่าทดแทน</span>' : '';
+    const swapped = id !== item.id ? ' <span class="badge lotus">ท่าทดแทน</span>'
+      : item.planned ? ` <span class="badge">แทน${esc(infoName(exerciseInfo(item.planned)))}</span>` : '';
     const role = item.role === 'warmup' ? ' <span class="badge gold">วอร์มอัพ</span>' : '';
     return `<button class="session-item${done ? ' done' : ''}" data-act="openExercise" data-id="${item.id}" data-session="1">
       <span class="thumb">${thumbFor(id)}</span>
@@ -839,6 +861,12 @@ function renderSession() {
     </div>
     ${s.adjusted ? `<p class="note">${ADJUST_TEXT[s.adjusted]}</p>` : ''}
     ${!t.day.checkin ? '<div class="note gold row between"><span>ยังไม่ได้เช็กอิน ใช้ความหนักมาตรฐานไปก่อนนะ</span><button class="btn sm soft" data-act="checkin">เช็กอิน</button></div>' : ''}
+    ${travelOn() ? '' : `<div class="place-row"><span class="small muted">เล่นที่</span>
+      <div class="chips">${samePlaces.map((p) => `<button class="chip sm" data-act="pickPlace" data-id="${p.id}" aria-pressed="${p.id === place.id}">${esc(p.name)}</button>`).join('')}</div>
+      <button class="link small" data-act="openEquip" data-id="${place.id}">อุปกรณ์</button></div>`}
+    ${!place.configured && !travelOn() ? `<div class="note row between"><span class="small">ยังไม่ได้บอกแมวว่า${esc(place.name)}มีอุปกรณ์อะไร ตอนนี้ใช้${place.kind === 'gym' ? 'ยิมทั่วไป' : 'แค่เสื่อกับขวดน้ำ'}ไปก่อน</span>
+      <button class="btn sm soft" data-act="openEquip" data-id="${place.id}">ตั้งค่า</button></div>` : ''}
+    ${plan.swapped || plan.dropped ? `<p class="note">ปรับให้เหลือแต่ท่าที่เล่นได้ที่${esc(place.name)}${plan.swapped ? ` · เปลี่ยน ${plan.swapped} ท่า` : ''}${plan.dropped ? ` · ข้าม ${plan.dropped} ท่าที่ไม่มีอุปกรณ์` : ''}</p>` : ''}
     ${prep}
     <p class="muted small">เล่นตามลำดับจากบนลงล่าง แตะเพื่อดูวิธีเล่น · ทำแล้ว ${doneCount}/${items.length}</p>
     ${list}
@@ -856,7 +884,7 @@ function lastUsed(id) {
 }
 
 function nextButton(t, baseId) {
-  const next = sessionItems(t.session).find((i) => i.id !== baseId && !itemDone(t.day, i, t.session));
+  const next = planItems(t).find((i) => i.id !== baseId && !itemDone(t.day, i, t.session));
   return next
     ? `<button class="btn primary big block" data-act="openExercise" data-id="${next.id}" data-session="1" data-replace="1">
         ไปต่อ: ${esc(infoName(exerciseInfo(currentId(t.day, next.id))))} ›</button>`
@@ -871,7 +899,7 @@ function renderExercise(sheet) {
   const info = exerciseInfo(id);
   const machine = info.kind === 'machine' ? info : null;
   const parent = info.kind === 'alt' ? machineById(info.parent) : null;
-  const item = inSession ? sessionItems(t.session).find((i) => i.id === baseId) : null;
+  const item = inSession ? planItems(t).find((i) => i.id === baseId) : null;
   const ol = (arr) => `<ol>${arr.map((x) => `<li>${x}</li>`).join('')}</ol>`;
 
   // --- picture: the user's own photo, or the line drawing ---
@@ -991,18 +1019,31 @@ function renderExercise(sheet) {
       ${machine.mistakes.map((x) => `<div class="mistake"><span>${x.wrong}</span><span>${x.fix}</span></div>`).join('')}</div>`
     : `<div class="card"><h2>วิธีทำ</h2>${info.equip ? `<p class="muted small">อุปกรณ์: ${info.equip}</p>` : ''}${ol(info.how)}</div>`;
 
-  // --- alternatives when the machine is taken ---
+  // --- stand-ins when the machine is taken: only from this place's equipment ---
+  const placesFor = (xid) => state.places.filter((pl) => canDo(xid, pl.equip)).map((pl) => pl.name);
+  const altCard = (aid, withSwap) => {
+    const a = exerciseInfo(aid);
+    const where = placesFor(aid);
+    return `<div class="alt"><b>${esc(infoName(a))}</b>
+      <div class="muted small">ใช้: ${needsText(aid)}${!withSwap && where.length ? ` · เล่นได้ที่${where.join(', ')}` : ''}</div>${ol(a.how ?? [])}
+      ${withSwap ? `<button class="btn lotus block" data-act="swap" data-id="${baseId}" data-alt="${aid}">เล่นท่านี้แทน</button>` : ''}</div>`;
+  };
   let alts = '';
-  if (parent && inSession) {
-    alts = `<div class="card"><p>กำลังเล่นท่าทดแทนของ <b>${parent.th}</b></p>
-      <button class="btn soft block" data-act="unswap" data-id="${baseId}">กลับไปใช้${parent.th}</button></div>`;
+  if (inSession && t.day.altSwaps[baseId]) {
+    const orig = exerciseInfo(baseId);
+    alts = `<div class="card"><p>กำลังเล่นท่าทดแทนของ <b>${esc(infoName(orig))}</b></p>
+      <button class="btn soft block" data-act="unswap" data-id="${baseId}">กลับไปใช้${esc(infoName(orig))}</button></div>`;
+  } else if (inSession && item && info.kind !== 'routine') {
+    const place = placeFor(t.session);
+    const used = planItems(t).map((i) => currentId(t.day, i.id));
+    const options = playableSubstitutes(item.planned ?? baseId, place.equip, used).slice(0, 3);
+    alts = `<div class="card"><button class="btn soft block" data-act="toggleAlts" aria-expanded="${ui.showAlts}">${machine ? 'เครื่องไม่ว่าง? ดูท่าทดแทน' : 'ไม่สะดวกเล่นท่านี้? ดูท่าอื่น'}</button>
+      ${ui.showAlts ? `<p class="small muted">เลือกจากอุปกรณ์ที่มีที่${esc(place.name)} กล้ามเนื้อใกล้เคียงกัน</p>
+        ${options.length ? options.map((aid) => altCard(aid, true)).join('')
+    : '<p class="small">ที่นี่ไม่มีอุปกรณ์สำหรับท่าอื่นที่ใช้กล้ามเนื้อเดียวกัน รอสักครู่ หรือข้ามไปท่าถัดไปก่อนก็ได้ ไม่เป็นไรเลย</p>'}` : ''}</div>`;
   } else if (machine) {
     alts = `<div class="card"><button class="btn soft block" data-act="toggleAlts" aria-expanded="${ui.showAlts}">เครื่องไม่ว่าง? ดูท่าทดแทน</button>
-      ${ui.showAlts ? machine.alternatives.map((aid) => {
-        const a = ALTERNATIVES[aid];
-        return `<div class="alt"><b>${a.name}</b><div class="muted small">อุปกรณ์: ${a.equip}</div>${ol(a.how)}
-          ${inSession ? `<button class="btn lotus block" data-act="swap" data-id="${baseId}" data-alt="${aid}">เล่นท่านี้แทน</button>` : ''}</div>`;
-      }).join('') : ''}</div>`;
+      ${ui.showAlts ? playableSubstitutes(machine.id, Object.keys(EQUIPMENT)).map((aid) => altCard(aid, false)).join('') : ''}</div>`;
   }
 
   return `${sheetTop(esc(infoName(info)))}
@@ -1345,6 +1386,9 @@ function renderArrange() {
   const { items, ctx } = arrangeInputs(t);
   const r = arrangeDay(items, ctx);
   const adj = t.session?.adjusted;
+  const plan = t.session && !t.done ? resolvedPlan(t.session) : null;
+  const equipNote = plan && (plan.swapped || plan.dropped)
+    ? `<li>ออกกำลังกาย: ใช้เฉพาะอุปกรณ์ที่มีที่${esc(placeFor(t.session).name)} (เปลี่ยน ${plan.swapped} ท่า${plan.dropped ? ` ข้าม ${plan.dropped} ท่า` : ''})</li>` : '';
   const sessionNote = adj && ADJUST_TEXT[adj] && ['rain', 'hot', 'travel', 'pattern', 'light', 'rest', 'sore', 'swap', 'sore-light'].includes(adj)
     ? `<li>${ADJUST_TEXT[adj]}</li>` : '';
   const w = t.day.weather ?? 'none';
@@ -1363,7 +1407,7 @@ function renderArrange() {
       ${r.changes.map((c) => `<div class="change">
         <div class="row between"><b>${esc(c.label)}</b><span class="nowrap">${c.from ?? 'ยังไม่มีเวลา'} → <b>${c.to}</b></span></div>
         <p class="small muted">${esc(c.reason)}</p></div>`).join('')}
-      <ul class="soft-list small">${sessionNote}${r.notes.map((n) => `<li>${n}</li>`).join('')}</ul>
+      <ul class="soft-list small">${sessionNote}${equipNote}${r.notes.map((n) => `<li>${n}</li>`).join('')}</ul>
       ${!t.day.checkin ? '<button class="btn ghost sm" data-act="checkin">เช็กอินก่อน (1 นาที)</button>' : ''}
     </div>
     <div class="sheet-foot">
@@ -1702,21 +1746,76 @@ function renderGym() {
     : `<b>โปรแกรมวันนี้</b><br>${sessionTitle(preview)}<br>${intensityChip(preview)}`}</div></div>
       ${t.done ? '' : '<button class="btn lotus big block" data-act="goGym" style="margin-top:12px">วันนี้ไปยิม</button>'}
     </div>
-    <h2>คู่มือเครื่องเล่น</h2>
-    <p class="muted small">แตะเครื่องเพื่อดูวิธีเล่น กล้ามเนื้อที่ใช้ และค่าที่ตั้งไว้ · ใส่รูปเครื่องจริงในยิมได้</p>
-    <div class="machine-grid">${MACHINES.map((m) => {
-      const last = lastUsed(m.id);
-      return `<button class="machine-card" data-act="openExercise" data-id="${m.id}">
-        <span class="thumb">${thumbFor(m.id)}</span>
-        <b class="head">${m.th}</b>
-        <span class="muted small">${last ? `ล่าสุด: ${esc(last.seat || '-')} · ${last.weight ?? '-'} ${m.type === 'cardio' ? 'กม./ชม.' : 'กก.'}` : m.name}</span>
-      </button>`;
-    }).join('')}</div>
+    ${libraryHtml()}
     <div class="card"><h2>เคล็ดลับจากแมว</h2><ul>
       <li>เริ่มจากน้ำหนักที่ทำได้ครบ โดยท่ายังสวย</li>
       <li>หายใจออกตอนออกแรง หายใจเข้าตอนผ่อน</li>
       <li>เจ็บแปลบหรือปวดที่ข้อต่อ ให้หยุดทันที</li>
     </ul></div>`;
+}
+
+// ---------- exercise library + body map ----------
+// Every exercise in one place. Tap a muscle on the body map to filter; the
+// "แสดงเฉพาะท่าที่เล่นได้" switch hides what the chosen place can't do.
+function libraryHtml() {
+  const only = ui.libOnly ?? true;
+  const place = state.places.find((p) => p.id === (ui.libPlace ?? state.settings.gymPlace)) ?? state.places[0];
+  const muscle = ui.libMuscle ?? null;
+  const all = allExercises();
+  const list = filterLibrary(all, { equip: only ? place.equip : null, muscle });
+  const hidden = filterLibrary(all, { muscle }).length - list.length;
+  const row = (x) => {
+    const ok = canDo(x.id, place.equip);
+    const last = x.kind === 'machine' ? lastUsed(x.id) : null;
+    return `<button class="lib-row${ok ? '' : ' unavailable'}" data-act="openExercise" data-id="${x.id}">
+      <span class="thumb">${thumbFor(x.id)}</span>
+      <span class="grow"><b>${esc(x.name)}</b><br><span class="small muted">${last ? `ล่าสุด: ${esc(last.seat || '-')} · ${last.weight ?? '-'} ${x.type === 'cardio' ? 'กม./ชม.' : 'กก.'}` : esc(needsText(x.id))}</span>
+        ${ok ? '' : `<br><span class="badge">ไม่มีอุปกรณ์ที่${esc(place.name)}</span>`}</span></button>`;
+  };
+  const groups = [['machine', 'เครื่องในยิม'], ['alt', 'ฟรีเวท ยางยืด และท่าทดแทน'], ['home', 'น้ำหนักตัว / ที่บ้าน'], ['routine', 'คาร์ดิโอและยืดเหยียด']];
+  return `<h2>คลังท่า</h2>
+    <div class="card lib-filter">
+      <div class="rem-row"><span class="grow">แสดงเฉพาะท่าที่เล่นได้</span>
+        <label class="switch" aria-label="แสดงเฉพาะท่าที่เล่นได้"><input type="checkbox" data-act="libOnly" ${only ? 'checked' : ''}><span></span></label></div>
+      <div class="chips">${state.places.map((p) => `<button class="chip sm" data-act="libPlace" data-id="${p.id}" aria-pressed="${p.id === place.id}">${esc(p.name)}</button>`).join('')}
+        <button class="chip sm" data-act="openEquip" data-id="${place.id}">${icon('gear', { size: 16 })}อุปกรณ์</button></div>
+      <div class="body-pick">${muscleMap({ primary: muscle ? [muscle] : [], labels: MUSCLES })}</div>
+      <p class="small muted center">${muscle ? `กล้ามเนื้อ: <b>${MUSCLES[muscle]}</b> · <button class="link" data-act="bmPick" data-m="">ดูทั้งหมด</button>` : 'แตะกล้ามเนื้อบนภาพเพื่อดูท่าที่ใช้ส่วนนั้น'}</p>
+    </div>
+    ${groups.map(([k, label]) => {
+      const xs = list.filter((x) => x.kind === k);
+      return xs.length ? `<h3>${label}</h3><div class="lib-list">${xs.map(row).join('')}</div>` : '';
+    }).join('') || '<p class="muted">ไม่มีท่าที่ตรงกับตัวกรอง ลองเลือกกล้ามเนื้ออื่น หรือเพิ่มอุปกรณ์</p>'}
+    ${only && hidden > 0 ? `<p class="small muted">ซ่อนไว้ ${hidden} ท่าที่ต้องใช้อุปกรณ์ที่${esc(place.name)}ไม่มี</p>` : ''}`;
+}
+
+// ---------- "อุปกรณ์ของฉัน" ----------
+function renderEquip(s) {
+  const place = state.places.find((p) => p.id === s.id) ?? state.places[0];
+  const has = new Set(place.equip);
+  const chip = (id) => `<button class="chip sm" data-act="equipToggle" data-id="${id}" aria-pressed="${has.has(id)}">${EQUIPMENT[id].label}</button>`;
+  return `${sheetTop('อุปกรณ์ของฉัน')}
+    <div class="chips">${state.places.map((p) => `<button class="chip" data-act="equipPlace" data-id="${p.id}" aria-pressed="${p.id === place.id}">${icon(p.kind === 'gym' ? 'dumbbell' : 'house', { size: 18 })}${esc(p.name)}</button>`).join('')}</div>
+    <div class="question">${esc(place.name)}มีอะไรบ้าง?</div>
+    <p class="center small muted">เลือกเฉพาะที่มีจริง แมวจะเสนอแต่ท่าที่เล่นได้</p>
+    <div class="card">
+      <button class="chip" data-act="equipNone" aria-pressed="${!has.size}">ตัวเปล่า ไม่มีอุปกรณ์</button>
+      ${EQUIP_GROUPS.map(([g, label]) => `<h3>${label}</h3><div class="chips">${Object.keys(EQUIPMENT).filter((id) => EQUIPMENT[id].group === g).map(chip).join('')}</div>`).join('')}
+    </div>
+    <div class="card">
+      <form class="row" data-form="placeRename" data-id="${place.id}">
+        <input type="text" name="pname" value="${esc(place.name)}" maxlength="24" aria-label="ชื่อสถานที่">
+        <button class="btn soft sm">เปลี่ยนชื่อ</button></form>
+      ${state.places.filter((p) => p.kind === place.kind).length > 1 ? `<button class="btn ghost sm gap-top" data-act="placeDelete" data-id="${place.id}">ลบสถานที่นี้</button>` : ''}
+    </div>
+    <div class="card">
+      <h2>เพิ่มสถานที่</h2>
+      <form class="form-stack" data-form="placeAdd">
+        <input type="text" name="pname" placeholder="เช่น ยิมที่ทำงาน คอนโด บ้านพ่อแม่" required maxlength="24">
+        <div class="chips"><label class="chip"><input type="radio" name="kind" value="gym" checked>ยิม</label><label class="chip"><input type="radio" name="kind" value="home">บ้าน / ที่พัก</label></div>
+        <button class="btn soft">เพิ่ม</button></form>
+    </div>
+    <div class="sheet-foot"><button class="btn primary big block" data-act="back">เสร็จแล้ว</button></div>`;
 }
 
 // ---------- "ของฉัน": personal numbers in one place ----------
@@ -2029,6 +2128,15 @@ function renderSettings() {
         ${p.food.allergies.length ? ` · แพ้${p.food.allergies.map((a) => ALLERGIES[a]).join(', ')}` : ''}
         ${p.food.avoid.length ? ` · ${p.food.avoid.map((a) => AVOID[a]).join(', ')}` : ''}</p>
       <button class="btn soft block" data-act="editProfile">แก้คำตอบ</button>
+    </div>
+
+    <div class="card">
+      <h2>อุปกรณ์ของฉัน</h2>
+      <p class="small muted">แมวจะเสนอแต่ท่าที่เล่นได้จริงจากอุปกรณ์ที่มี</p>
+      ${state.places.map((pl) => `<button class="list-row plain-row" data-act="openEquip" data-id="${pl.id}">
+        <span class="lr-ic">${icon(pl.kind === 'gym' ? 'dumbbell' : 'house')}</span>
+        <span class="grow"><span class="lr-title">${esc(pl.name)}</span><br><span class="small muted">${pl.equip.length ? `${pl.equip.length} อย่าง` : 'ตัวเปล่า'}${pl.configured ? '' : ' · ยังไม่ได้ตั้งค่า'}</span></span>
+        <span class="chev">›</span></button>`).join('')}
     </div>
 
     <div class="card">
@@ -2770,6 +2878,54 @@ const actions = {
   },
 
   // week & food
+  // equipment + library
+  openEquip: (d) => pushSheet({ type: 'equip', id: d.id || state.settings.gymPlace }),
+  equipPlace: (d) => replaceSheet({ type: 'equip', id: d.id }),
+  equipToggle: (d) => {
+    const place = state.places.find((p) => p.id === topSheet().id);
+    place.equip = place.equip.includes(d.id) ? place.equip.filter((x) => x !== d.id) : [...place.equip, d.id];
+    place.configured = true;
+    save();
+    renderSheet();
+    render();
+  },
+  equipNone: () => {
+    const place = state.places.find((p) => p.id === topSheet().id);
+    place.equip = [];
+    place.configured = true;
+    save();
+    renderSheet();
+    render();
+  },
+  placeDelete: (d) => {
+    const idx = state.places.findIndex((p) => p.id === d.id);
+    const [pl] = state.places.splice(idx, 1);
+    for (const k of ['gymPlace', 'homePlace']) if (state.settings[k] === pl.id) state.settings[k] = state.places.find((p) => p.kind === pl.kind)?.id;
+    save();
+    replaceSheet({ type: 'equip', id: state.places[0].id });
+    render();
+    toast(`ลบ "${pl.name}" แล้ว`);
+  },
+  pickPlace: (d) => {
+    const pl = state.places.find((p) => p.id === d.id);
+    state.settings[pl.kind === 'gym' ? 'gymPlace' : 'homePlace'] = pl.id;
+    save();
+    renderSheet();
+    render();
+    toast(`วันนี้เล่นที่${pl.name} แมวเลือกท่าให้ตรงกับอุปกรณ์แล้ว`);
+  },
+  libOnly: (d, el) => {
+    ui.libOnly = el.checked;
+    renderGym();
+  },
+  libPlace: (d) => {
+    ui.libPlace = d.id;
+    renderGym();
+  },
+  bmPick: (d) => {
+    ui.libMuscle = d.m && ui.libMuscle !== d.m ? d.m : null;
+    renderGym();
+  },
   calDay: (d) => {
     ui.calDay = d.key;
     renderWeek();
@@ -2956,6 +3112,26 @@ const changes = {
 };
 
 const forms = {
+  placeAdd: (form) => {
+    const name = form.elements.pname.value.trim();
+    if (!name) return;
+    const kind = form.elements.kind.value || 'gym';
+    const place = { id: newId(), name, kind, equip: [], configured: true };
+    state.places.push(place);
+    save();
+    replaceSheet({ type: 'equip', id: place.id });
+    render();
+  },
+  placeRename: (form) => {
+    const place = state.places.find((p) => p.id === form.dataset.id);
+    const name = form.elements.pname.value.trim();
+    if (!place || !name) return;
+    place.name = name;
+    save();
+    renderSheet();
+    render();
+    toast('เปลี่ยนชื่อแล้ว');
+  },
   name: (form) => {
     if (!state.profile) return;
     state.profile.name = form.elements.nick.value.trim();
@@ -3037,7 +3213,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Escape' && ui.sheets.length) popSheet();
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"][data-act]')) {
     e.preventDefault();
-    e.target.click();
+    e.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); // SVG regions have no .click()
   }
 });
 // Typed values in the first-run form go straight into the draft, so tapping a

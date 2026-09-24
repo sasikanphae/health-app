@@ -191,18 +191,21 @@ const SILHOUETTE = `
   <rect x="-19" y="104" width="17" height="54" rx="8"/><rect x="2" y="104" width="17" height="54" rx="8"/>
   <rect x="-17" y="156" width="13" height="46" rx="6"/><rect x="4" y="156" width="13" height="46" rx="6"/>`;
 
-function figure(cx, shapes, primary, secondary, label) {
+function figure(cx, shapes, primary, secondary, label, labels) {
   const regions = Object.entries(shapes).map(([id, shape]) => {
     const cls = primary.includes(id) ? 'mm-primary' : secondary.includes(id) ? 'mm-secondary' : 'mm-idle';
-    return `<g class="${cls}">${shape}<g transform="scale(-1 1)">${shape}</g></g>`;
+    // With labels, each region is a button (the library's body-map filter).
+    const tap = labels ? ` data-act="bmPick" data-m="${id}" role="button" tabindex="0" aria-label="${labels[id]}" aria-pressed="${primary.includes(id)}"` : '';
+    return `<g class="${cls}${labels ? ' mm-tap' : ''}"${tap}>${shape}<g transform="scale(-1 1)">${shape}</g></g>`;
   }).join('');
   return `<g transform="translate(${cx} 6)"><g class="mm-body">${SILHOUETTE}</g>${regions}</g>
     <text class="mm-label" x="${cx}" y="228" text-anchor="middle">${label}</text>`;
 }
 
-export function muscleMap({ primary = [], secondary = [] } = {}) {
-  return `<svg class="muscle-map" viewBox="0 0 240 236" role="img" aria-label="ภาพกล้ามเนื้อที่ใช้ ด้านหน้าและด้านหลัง">
-    ${figure(62, FRONT, primary, secondary, 'ด้านหน้า')}
-    ${figure(178, BACK, primary, secondary, 'ด้านหลัง')}
+// labels: { muscleId: name } makes every region tappable (data-act="bmPick").
+export function muscleMap({ primary = [], secondary = [], labels = null } = {}) {
+  return `<svg class="muscle-map" viewBox="0 0 240 236" ${labels ? 'role="group" aria-label="แตะกล้ามเนื้อเพื่อกรองท่า"' : 'role="img" aria-label="ภาพกล้ามเนื้อที่ใช้ ด้านหน้าและด้านหลัง"'}>
+    ${figure(62, FRONT, primary, secondary, 'ด้านหน้า', labels)}
+    ${figure(178, BACK, primary, secondary, 'ด้านหลัง', labels)}
   </svg>`;
 }

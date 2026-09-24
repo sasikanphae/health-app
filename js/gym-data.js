@@ -82,6 +82,35 @@ export const ALTERNATIVES = {
     name: 'Lateral Raise (กางแขนยกดัมเบล)', equip: 'ดัมเบลเบาๆ 2 ลูก',
     how: ['ยืนถือดัมเบลข้างลำตัว ศอกงอเล็กน้อย', 'กางแขนยกขึ้นด้านข้างจนระดับไหล่', 'ลดลงช้าๆ'],
   },
+  // Free weights, bands and straps: so every kind of equipment has something to offer.
+  'barbell-squat': {
+    name: 'Barbell Back Squat', equip: 'บาร์เบล + แร็ค',
+    how: ['ตั้งบาร์ในแร็คระดับอกบน ลอดเข้าไปวางบาร์บนบ่าด้านหลัง', 'ถอยออกมา 2 ก้าว เท้ากว้างเท่าไหล่', 'ย่อลงจนต้นขาขนานพื้น หลังตรง แล้วดันขึ้น', 'ตั้งสลักกันตกของแร็คไว้เสมอ'],
+  },
+  'kb-swing': {
+    name: 'Kettlebell Swing', equip: 'เคตเทิลเบล 1 ลูก',
+    how: ['ยืนเท้ากว้างกว่าไหล่ จับเคตเทิลเบลสองมือ', 'พับสะโพกไปข้างหลัง ให้ลูกเหวี่ยงลอดขา หลังตรง', 'บีบก้นดันสะโพกไปข้างหน้า ให้ลูกลอยขึ้นระดับอกด้วยแรงสะโพก ไม่ใช่แขน'],
+  },
+  'band-chest-press': {
+    name: 'Band Chest Press (ดันยางยืด)', equip: 'ยางยืด',
+    how: ['คล้องยางยืดไว้ด้านหลังระดับอก (เสาหรือลูกบิดประตูที่แน่นหนา)', 'หันหลังให้จุดคล้อง จับปลายยางระดับอก', 'ดันมือไปข้างหน้าจนแขนเกือบเหยียด แล้วผ่อนกลับช้าๆ'],
+  },
+  'band-pulldown': {
+    name: 'Band Pulldown (ดึงยางลง)', equip: 'ยางยืด',
+    how: ['คล้องยางยืดไว้สูงเหนือศีรษะ', 'คุกเข่าหรือนั่ง จับยางแขนเหยียดขึ้น', 'ดึงศอกลงข้างลำตัว บีบหลัง แล้วปล่อยขึ้นช้าๆ'],
+  },
+  'band-row': {
+    name: 'Band Row (ดึงยางเข้าหาตัว)', equip: 'ยางยืด',
+    how: ['นั่งเหยียดขา คล้องยางที่ฝ่าเท้า', 'จับปลายยางสองมือ หลังตรง', 'ดึงศอกไปข้างหลัง บีบสะบัก แล้วผ่อนช้าๆ'],
+  },
+  'trx-row': {
+    name: 'TRX Row (ดึงตัวด้วยสายแขวน)', equip: 'TRX / สายแขวน',
+    how: ['จับมือจับ เอนตัวไปข้างหลัง ลำตัวตรงเหมือนแพลงก์', 'ดึงอกเข้าหามือ บีบสะบัก', 'ลดตัวกลับช้าๆ ยิ่งเอนมากยิ่งหนัก'],
+  },
+  'kb-press': {
+    name: 'Kettlebell Overhead Press', equip: 'เคตเทิลเบล',
+    how: ['ถือเคตเทิลเบลระดับไหล่ ข้อมือตรง', 'เกร็งหน้าท้อง ดันขึ้นเหนือศีรษะ', 'ลดลงช้าๆ ทำครบแล้วสลับข้าง'],
+  },
   bike: {
     name: 'จักรยานปั่นอยู่กับที่', equip: 'Stationary Bike',
     how: ['ปรับเบาะให้เข่างอเล็กน้อยตอนเท้าอยู่จุดต่ำสุด', 'ปั่นรอบสม่ำเสมอ ความหนืดระดับกลาง', 'ใช้เวลาเท่ากับที่ตั้งไว้สำหรับลู่วิ่ง'],
@@ -107,7 +136,7 @@ export const MACHINES = [
       { wrong: 'เข่าบีบเข้าหากันตอนดัน', fix: 'ดันเข่าให้ชี้ไปทางเดียวกับปลายเท้าตลอด' },
       { wrong: 'ล็อกเข่าตอนเหยียดสุด', fix: 'หยุดก่อนเหยียดสุดเล็กน้อย ให้เข่ายังงอนิดๆ' },
     ],
-    alternatives: ['goblet-squat', 'smith-squat'],
+    alternatives: ['goblet-squat', 'smith-squat', 'barbell-squat'],
   },
   {
     id: 'leg-extension', name: 'Leg Extension', th: 'เครื่องเหยียดขา', type: 'strength', group: 'lower',
@@ -135,7 +164,7 @@ export const MACHINES = [
       { wrong: 'สะโพกยกลอยจากเบาะ', fix: 'กดแผ่นล็อกต้นขาให้แน่นขึ้น และลดน้ำหนัก' },
       { wrong: 'ปล่อยน้ำหนักกลับเร็วจนแผ่นกระแทก', fix: 'ให้จังหวะปล่อยช้ากว่าจังหวะดึงเสมอ' },
     ],
-    alternatives: ['db-rdl', 'glute-bridge-alt'],
+    alternatives: ['db-rdl', 'kb-swing', 'glute-bridge-alt'],
   },
   {
     id: 'chest-press', name: 'Chest Press', th: 'เครื่องดันอก', type: 'strength', group: 'upper',
@@ -150,7 +179,7 @@ export const MACHINES = [
       { wrong: 'ศอกกางออกเป็นเส้นตรงกับไหล่', fix: 'หุบศอกให้ทำมุมราว 45 องศากับลำตัว' },
       { wrong: 'หลังลอยจากพนัก', fix: 'ลดน้ำหนัก และวางเท้าให้มั่นคง' },
     ],
-    alternatives: ['db-bench', 'pushup-alt'],
+    alternatives: ['db-bench', 'band-chest-press', 'pushup-alt'],
   },
   {
     id: 'lat-pulldown', name: 'Lat Pulldown', th: 'เครื่องดึงบาร์ลง', type: 'strength', group: 'upper',
@@ -165,7 +194,7 @@ export const MACHINES = [
       { wrong: 'เอนตัวไปหลังมากและเหวี่ยง', fix: 'ลดน้ำหนัก เอนหลังแค่เล็กน้อยและคงไว้ตลอด' },
       { wrong: 'ใช้แขนดึงเป็นหลัก', fix: 'เริ่มจากกดสะบักลงก่อน แล้วค่อยงอศอก' },
     ],
-    alternatives: ['assisted-pullup', 'db-row'],
+    alternatives: ['assisted-pullup', 'band-pulldown', 'db-row'],
   },
   {
     id: 'seated-row', name: 'Seated Row', th: 'เครื่องดึงเข้าหาตัว', type: 'strength', group: 'upper',
@@ -179,7 +208,7 @@ export const MACHINES = [
       { wrong: 'โยกลำตัวไปหน้าหลังเพื่อช่วยดึง', fix: 'ให้อกแนบแผ่นรองตลอด ขยับแค่แขนและสะบัก' },
       { wrong: 'ยักไหล่ขึ้นหาหู', fix: 'กดไหล่ลงก่อนเริ่มดึงทุกครั้ง' },
     ],
-    alternatives: ['cable-row', 'db-row'],
+    alternatives: ['cable-row', 'trx-row', 'band-row'],
   },
   {
     id: 'shoulder-press', name: 'Shoulder Press', th: 'เครื่องดันไหล่', type: 'strength', group: 'upper',
@@ -193,7 +222,7 @@ export const MACHINES = [
       { wrong: 'แอ่นหลังเพื่อช่วยดัน', fix: 'เกร็งหน้าท้อง หลังแนบพนัก และลดน้ำหนัก' },
       { wrong: 'ลดต่ำเกินจนเจ็บหัวไหล่', fix: 'หยุดที่ระดับหู ไม่ต้องลงลึกกว่านั้น' },
     ],
-    alternatives: ['db-shoulder-press', 'lateral-raise'],
+    alternatives: ['db-shoulder-press', 'kb-press', 'lateral-raise'],
   },
   {
     id: 'treadmill', name: 'Treadmill', th: 'ลู่วิ่ง', type: 'cardio', group: 'cardio',
