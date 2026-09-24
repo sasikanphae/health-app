@@ -85,3 +85,15 @@ test('not-today mode postpones only non-urgent work and errands', () => {
   ], '2026-09-24').map((e) => e.id);
   assert.deepEqual(ids, ['w', 'p']);
 });
+
+test('memory: remembered workout time and the meeting rule', () => {
+  const r = arrangeDay(base(), ctx({ prefTime: '19:00', prefText: 'แมวจำได้ว่าเธอชอบออกกำลังกายช่วง 19:00 มากกว่า 18:00' }));
+  const c = r.changes.find((x) => x.id === 'workout');
+  assert.equal(c.to, '19:00');
+  assert.match(c.reason, /แมวจำได้ว่าเธอชอบ/);
+  const items = [...base(), { id: 'ev-m', kind: 'event', label: 'ประชุมทีม', time: '16:00', dur: 60, fixed: true, meeting: true }];
+  const m = arrangeDay(items, ctx({ now: 7 * 60, meetingMove: true }));
+  assert.equal(m.times.workout, '07:00');
+  assert.match(m.changes.find((x) => x.id === 'workout').reason, /ตามที่ตกลงกันไว้/);
+  assert.equal(arrangeDay(items, ctx({ now: 7 * 60 })).times.workout, '18:00'); // no rule, no move
+});

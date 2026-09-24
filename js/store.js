@@ -36,6 +36,12 @@ export function defaultState() {
       learn: true, // pattern engine + habits (on-device only); can be turned off in Privacy
       mic: true, // show the microphone button (speech goes through the browser's own service)
       travel: { on: false }, // travel mode: { on, since, until|null }
+      memory: true, // Cat Memory on/off (everything it remembers stays visible and deletable)
+      memoryKinds: {}, // per-kind switches: { time, food, busy, forget, told, rule, inbox } (missing = on)
+      why: true, // ask "ครั้งนี้เพราะอะไร?" after a plan slips twice
+      whyMutedUntil: null,
+      whyAskedOn: null,
+      inboxAuto: true, // file clear inbox items straight away (off = always check first)
       gymPlace: 'gym', // which place a gym day happens at
       homePlace: 'home', // which place a home workout happens at
       reminders: [
@@ -62,6 +68,10 @@ export function defaultState() {
     notes: [], // [{ id, text, at, editedAt? }]
     shopList: [], // household items added by hand: [{ id, text, done }]
     places: defaultPlaces(), // "อุปกรณ์ของฉัน": [{ id, name, kind: home|gym, equip: [ids], configured }]
+    memory: { items: [], forgotten: {}, refreshedOn: null }, // Cat Memory (see memory.js)
+    whyLog: [], // answers to "ครั้งนี้เพราะอะไร?": [{ id, kind, key, date, ref, reason, context, at }]
+    signals: [], // small events to learn from: [{ t: skip|snooze|late-bill, ref, date }]
+    patternMuted: {}, // observation id -> true ("ไม่ต้องบอกเรื่องนี้อีก")
     inbox: [], // "โยนไว้ก่อน" history: [{ id, raw, item, ref: { type, id, date? }, at }]
     lastSpecial: null, // date of the last "special day" suggestion
     wrappedSeen: null, // 'YYYY-MM' of the last monthly story opened from Today
@@ -94,11 +104,15 @@ export function normalize(raw) {
     state.days[key] = { ...emptyDay(), ...day };
   }
   if (!Array.isArray(state.weights)) state.weights = [];
-  for (const k of ['events', 'bills', 'expenses', 'notes', 'shopList', 'inbox']) {
+  for (const k of ['events', 'bills', 'expenses', 'notes', 'shopList', 'inbox', 'whyLog', 'signals']) {
     if (!Array.isArray(state[k])) state[k] = [];
   }
   if (!Array.isArray(state.leaveLists)) state.leaveLists = defaultLeaveLists();
   if (!Array.isArray(state.places) || !state.places.length) state.places = defaultPlaces();
+  state.memory = { items: [], forgotten: {}, refreshedOn: null, ...(state.memory ?? {}) };
+  if (!Array.isArray(state.memory.items)) state.memory.items = [];
+  state.settings.memoryKinds ??= {};
+  if (!state.patternMuted || typeof state.patternMuted !== 'object') state.patternMuted = {};
   for (const b of state.bills) b.paid ??= {};
   if (!Array.isArray(state.rewards)) state.rewards = [];
   if (!state.insightSeen || typeof state.insightSeen !== 'object') state.insightSeen = {};

@@ -106,6 +106,19 @@ export function arrangeDay(items, ctx) {
     const dur = w.dur ?? 45;
     let want = toMinutes(w.time);
     const reasons = [];
+    // Cat Memory: the time the user actually likes (confirmed by them).
+    if (ctx.prefTime && ctx.prefTime !== w.time) {
+      want = toMinutes(ctx.prefTime);
+      reasons.push(ctx.prefText ?? `แมวจำได้ว่าเธอชอบช่วง ${ctx.prefTime}`);
+    }
+    // Agreed rule: a meeting in the afternoon usually means no workout after it → morning.
+    if (ctx.meetingMove) {
+      const meeting = items.find((i) => i.fixed && i.meeting && i.time && toMinutes(i.time) >= 12 * 60 && toMinutes(i.time) < want && want - toMinutes(i.time) <= 240);
+      if (meeting && now < 9 * 60) {
+        want = Math.max(6 * 60 + 30, roundUp(now));
+        reasons.push(`วันนี้มี "${meeting.label}" ช่วงบ่าย ตามที่ตกลงกันไว้ ย้ายไปช่วงเช้าก่อน`);
+      }
+    }
     if (ctx.weather === 'hot' && w.outdoor && want >= 10 * 60 && want < 17 * 60) {
       want = now <= 6 * 60 + 30 ? 6 * 60 + 30 : 18 * 60;
       reasons.push('อากาศร้อนจัด เลยเลี่ยงแดดกลางวัน');

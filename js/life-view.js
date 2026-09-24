@@ -154,6 +154,8 @@ export function createLife(ctx) {
     const c = billCycle(b, today());
     if (c.paid) return;
     b.paid[c.ym] = today();
+    // Paid after the due day: a signal Cat Memory can learn from ("มักจ่ายเลยวัน").
+    if (c.status === 'overdue') state.signals.push({ t: 'late-bill', ref: b.id, date: today() });
     let exp = null;
     if (b.amount) {
       exp = { id: ctx.newId(), date: today(), cat: 'bill', amount: b.amount, at: Date.now(), note: b.title };

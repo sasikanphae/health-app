@@ -5,15 +5,17 @@
 // keyword rules; the user always sees (and can fix) the result.
 // Pure functions only — tested in tests/inbox.test.js.
 import { addDays, parseKey, dateKey } from './health.js';
+import { isTold } from './memory.js';
 
 export const INBOX_CATS = {
-  appt: { label: 'นัดหมาย', icon: 'calendar' },
+  appt: { label: 'ปฏิทิน / นัด', icon: 'calendar' },
   remind: { label: 'การเตือน', icon: 'bell' },
   work: { label: 'งาน', icon: 'briefcase' },
-  shop: { label: 'ช้อปปิ้ง', icon: 'cart' },
+  shop: { label: 'ของที่ต้องซื้อ', icon: 'cart' },
   money: { label: 'การเงิน', icon: 'wallet' },
-  health: { label: 'สุขภาพ', icon: 'heart' },
+  health: { label: 'บันทึกสุขภาพ', icon: 'heart' },
   idea: { label: 'ไอเดีย', icon: 'sparkle' },
+  memory: { label: 'ให้แมวจำไว้', icon: 'pen' },
 };
 
 // ---------- numbers and times ----------
@@ -201,6 +203,7 @@ export function splitClauses(text) {
 // ---------- one clause → item(s) ----------
 
 function classify(clause, { date, time, amount }) {
+  if (isTold(clause)) return { cat: 'memory', conf: 'high' };
   if (IDEA_RE.test(clause) && !date && !time && !amount) return { cat: 'idea', conf: 'high' };
   if ((DOCTOR_RE.test(clause) || APPT_RE.test(clause)) && !SHOP_RE.test(clause)) return { cat: 'appt', conf: date ? 'high' : 'mid' };
   if (amount) return { cat: 'money', conf: 'high' };
@@ -246,6 +249,8 @@ export function parseInbox(text, { today, now = null } = {}) {
     } else if (cat === 'health') {
       const part = BODY.find(([, re]) => re.test(clause))?.[0] ?? null;
       items.push({ ...base, cat, title: tidy(clause, [d?.match]), part, date: date ?? today, time: null });
+    } else if (cat === 'memory') {
+      items.push({ ...base, cat, title: clause.trim(), date: null, time: null });
     } else if (cat === 'idea') {
       items.push({ ...base, cat, title: tidy(clause), date: null, time: null });
     } else {

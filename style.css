@@ -674,3 +674,15 @@ body.sheet-open .fab, body.timer-on .fab { display: none; }
 .plain-row:last-child { border-bottom: 0; }
 .mm-tap { pointer-events: all; }
 .mm-idle.mm-tap * { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+
+/* Cat Memory + why */
+.why-card .chips { margin-top: 10px; }
+.mem-kind { padding: 6px 0 10px; border-bottom: 1px solid var(--line); }
+.mem-kind:last-child { border-bottom: 0; }
+.mem-kind.off .mem-row { opacity: .55; }
+.mem-row { padding: 10px 0 10px 34px; border-top: 1px solid var(--line); display: grid; gap: 4px; }
+.card > .mem-row:first-of-type { border-top: 0; }
+.mem-actions { gap: 4px; }
+.mem-actions .btn.sm { min-height: 36px; padding: 4px 10px; }
+.mem-empty { padding-left: 34px; margin: 0 0 6px; }
+.mem-kind .rem-row .lr-ic { color: var(--muted); width: 24px; }

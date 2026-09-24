@@ -6,6 +6,7 @@ import { icon } from './icons.js';
 import { readiness } from './health.js';
 import { parseInbox, needsReview, INBOX_CATS } from './inbox.js';
 import { EXPENSE_CATS, APPT_TYPES } from './life.js';
+import { applyInboxRules, inboxRules } from './memory.js';
 
 const EVENT_KIND = { appt: 'appt', work: 'work', remind: 'personal' };
 const TIMED = new Set(['appt', 'work', 'remind']);
@@ -33,6 +34,10 @@ export function createInbox(ctx) {
   function file(item) {
     const id = ctx.newId();
     const t = today();
+    if (item.cat === 'memory') {
+      const m = ctx.assistant.tell(item.title);
+      return { type: 'memory', id: m.key };
+    }
     if (TIMED.has(item.cat)) {
       state.events.push({
         id, kind: EVENT_KIND[item.cat], title: item.title, date: item.date || t, time: item.time || null,
@@ -67,6 +72,7 @@ export function createInbox(ctx) {
     else if (ref.type === 'shop') drop('shopList');
     else if (ref.type === 'expense') drop('expenses');
     else if (ref.type === 'note') drop('notes');
+    else if (ref.type === 'memory') ctx.assistant.forget(ref.id);
     else if (ref.type === 'health') {
       const day = state.days[ref.date];
       if (day?.health) day.health = day.health.filter((h) => h.id !== ref.id);
@@ -88,15 +94,17 @@ export function createInbox(ctx) {
     money: 'จดเป็นรายจ่าย',
     health: item.part ? 'จดในบันทึกสุขภาพ และแมวจะเลี่ยงท่าที่ใช้ส่วนนั้นให้' : 'จดในบันทึกสุขภาพของวันนั้น',
     idea: 'เก็บไว้ในโน้ต',
+    memory: 'แมวจำไว้ ดู แก้ หรือลืมได้ที่ ของฉัน › แมวจำอะไรไว้บ้าง',
   }[item.cat]);
 
   // ---------- input ----------
   function submit(text, { voice = false } = {}) {
     const raw = String(text ?? '').trim();
     if (!raw) return false;
-    const items = parseInbox(raw, { today: today(), now: Date.now() });
+    // Words the user corrected before are filed the way they taught the cat.
+    const items = applyInboxRules(parseInbox(raw, { today: today(), now: Date.now() }), inboxRules(ctx.assistant.active()));
     if (!items.length) return false;
-    if (!voice && !needsReview(items)) {
+    if (!voice && state.settings.inboxAuto !== false && !needsReview(items)) {
       const entry = fileLogged(items[0], raw);
       ctx.sfx.knock();
       changed();
@@ -149,7 +157,7 @@ export function createInbox(ctx) {
         ${!s.replace && s.items.length > 1 ? `<button class="icon-btn" data-act="rvDel" data-i="${i}" aria-label="ไม่เอาอันนี้">${icon('x', { size: 16 })}</button>` : ''}</div>
       <input type="text" class="gap-top" data-rv="title" data-i="${i}" value="${esc(item.title)}" aria-label="ข้อความ">
       ${fields}
-      <p class="small muted">${whereText(item)}</p>
+      <p class="small muted">${item.learned ? 'จัดหมวดตามที่เธอเคยแก้ไว้ · ' : ''}${whereText(item)}</p>
     </div>`;
   }
 
@@ -271,9 +279,12 @@ export function createInbox(ctx) {
       }
       if (s.replace) {
         const e = state.inbox.find((x) => x.id === s.replace);
+        const moved = e.item.cat !== items[0].cat;
         unfile(e.ref);
         e.item = items[0];
         e.ref = file(items[0]);
+        // Learn from the correction, so next time it's filed right.
+        if (moved && items[0].cat !== 'memory') ctx.assistant.learnCorrection(items[0].title, items[0].cat, INBOX_CATS[items[0].cat].label);
       } else {
         for (const item of items) fileLogged(item, s.raw);
       }

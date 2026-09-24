@@ -177,11 +177,12 @@ export function pickMeal({ key, slot, food, dayType, swap = 0, exclude = [] }) {
 }
 
 // One day's menus. `slots` comes from the day timeline (the snack only on strength days).
-export function dayMeals({ key, food, dayType, slots, swaps = {} }) {
+// avoid: menu ids to steer away from (Cat Memory); ignored if nothing else fits.
+export function dayMeals({ key, food, dayType, slots, swaps = {}, avoid = [] }) {
   const out = {};
   const used = [];
   for (const slot of slots) {
-    const m = pickMeal({ key, slot, food, dayType, swap: swaps[slot] ?? 0, exclude: used });
+    const m = pickMeal({ key, slot, food, dayType, swap: swaps[slot] ?? 0, exclude: [...used, ...avoid] });
     out[slot] = m;
     if (m) used.push(m.id);
   }
