@@ -29,6 +29,7 @@ import {
 } from './equipment.js';
 import { createLife } from './life-view.js';
 import { createPush } from './push-view.js';
+import { DAILY_QUOTES, getTodayQuote, getRandomQuote } from './daily-quotes.js';
 import { pushCandidates, pushSnapshot } from './push-plan.js';
 import {
   ACTIVITY_LEVELS, WEIGHT_GOALS, SEXES, LIMITS, bmi, bmiInfo, calorieTarget, waterGoal, stepGoal,
@@ -809,7 +810,44 @@ function openCheckin() {
   const day = getDay(todayKey());
   const existing = day.checkin;
   // Anything already mentioned ("ปวดหลัง" in the inbox) is pre-filled.
-  pushSheet({ type: 'checkin', step: 0, answers: existing ? structuredClone(existing.answers) : { soreness: { ...(day.pendingSore ?? {}) } } });
+  // The day's quote opens the first check-in of the day (Settings can turn it off).
+  const quote = !existing && state.settings.dailyQuote !== false;
+  pushSheet({ type: 'checkin', step: quote ? -1 : 0, quote, answers: existing ? structuredClone(existing.answers) : { soreness: { ...(day.pendingSore ?? {}) } } });
+}
+
+// ---------- daily quote (data: src/data/dailyQuotes.ts → js/daily-quotes.js) ----------
+const QUOTE_CATEGORY = {
+  Mindfulness: 'มีสติ', 'Rest & Recovery': 'พักและฟื้นตัว', 'Strength & Resilience': 'เข้มแข็ง ล้มแล้วลุก',
+  'Habits & Growth': 'นิสัยและการเติบโต', 'Inner Peace': 'ใจสงบ', 'Self Care': 'ดูแลตัวเอง', 'Nature & Harmony': 'ธรรมชาติ',
+};
+const quoteOf = (s) => (s.quoteId ? DAILY_QUOTES.find((q) => q.id === s.quoteId) : null) ?? getTodayQuote();
+
+function renderQuote(s) {
+  const q = quoteOf(s);
+  const today = !s.quoteId;
+  return `${sheetTop('', { close: '✕' })}
+    <div class="quote-head">
+      <span class="cat-circle">${mascot('bright', { size: 76 })}</span>
+      <div><div class="small">${today ? 'คำคมประจำวัน' : 'คำคมที่สุ่มให้'}</div>
+        <div class="head">${thaiDate(todayKey(), { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
+    </div>
+    <figure class="card fill-yellow daily-quote" aria-live="polite">
+      <blockquote>“${esc(q.quote)}”</blockquote>
+      <figcaption>— ${esc(q.author)}</figcaption>
+      <div class="chips">
+        <span class="chip-mini" title="หมวด ${esc(q.category)}">${QUOTE_CATEGORY[q.category] ?? esc(q.category)}</span>
+        <span class="chip-mini">${esc(q.tag)}</span>
+      </div>
+    </figure>
+    <div class="quote-actions">
+      <button class="btn soft" data-act="quoteShare">${icon('heart', { size: 18 })}แชร์</button>
+      <button class="btn soft" data-act="quoteRandom">${icon('shuffle', { size: 18 })}สุ่มคำคม</button>
+    </div>
+    ${today ? '' : '<button class="link small quote-back" data-act="quoteToday">กลับไปคำคมของวันนี้</button>'}
+    <div class="sheet-foot">
+      ${s.view ? '<button class="btn primary big block" data-act="back">ปิด</button>'
+    : '<button class="btn primary big block" data-act="quoteStart">เริ่มเช็กอิน ›</button>'}
+    </div>`;
 }
 
 function finishCheckin(s) {
@@ -822,6 +860,7 @@ function finishCheckin(s) {
 }
 
 function renderCheckin(s) {
+  if (s.step < 0) return renderQuote(s);
   if (s.step >= CHECKIN_STEPS.length) {
     const c = getDay(todayKey()).checkin;
     const lv = LEVELS[c.level];
@@ -841,6 +880,7 @@ function renderCheckin(s) {
         ${c.reasons.length ? `<p class="muted small">ที่คะแนนลดลงเพราะ: ${c.reasons.join(' · ')}</p>` : ''}
       </div>
       <p class="muted small center">เป็นคำแนะนำคร่าวๆ ฟังร่างกายตัวเองเป็นหลัก ถ้าเจ็บหรือผิดปกติควรปรึกษาแพทย์</p>
+      ${state.settings.dailyQuote !== false ? '<button class="link small center-block" data-act="quoteView">ดูคำคมวันนี้อีกครั้ง</button>' : ''}
       <div class="sheet-foot">
         <button class="btn primary big block" data-act="back">เข้าใจแล้ว</button>
         <button class="btn ghost block" data-act="ciRestart">แก้คำตอบ</button>
@@ -2494,11 +2534,13 @@ function renderSettings() {
     </div>
 
     <div class="card">
-      <h2>เสียงและวันพระ</h2>
+      <h2>เสียง วันพระ และคำคม</h2>
       <div class="rem-row"><span class="grow">เสียงระฆัง/มู่ยู่ เมื่อทำรายการเสร็จ</span>
         <label class="switch" aria-label="เปิด/ปิดเสียง"><input type="checkbox" data-act="soundToggle" ${state.settings.sound ? 'checked' : ''}><span></span></label></div>
       <div class="rem-row"><span class="grow">แสดงวันพระ และชวนทำกิจกรรมเบาๆ ในวันพระ</span>
         <label class="switch" aria-label="เปิด/ปิดวันพระ"><input type="checkbox" data-act="holyToggle" ${state.settings.holyDays ? 'checked' : ''}><span></span></label></div>
+      <div class="rem-row"><span class="grow">คำคมประจำวัน ก่อนเช็กอินครั้งแรกของวัน</span>
+        <label class="switch" aria-label="เปิด/ปิดคำคมประจำวัน"><input type="checkbox" data-act="quoteToggle" ${state.settings.dailyQuote !== false ? 'checked' : ''}><span></span></label></div>
     </div>
 
     <div class="card">
@@ -3089,7 +3131,8 @@ const actions = {
   },
   ciBack: () => {
     const s = topSheet();
-    if (s.step === 0) popSheet();
+    if (s.step === 0 && s.quote) replaceSheet({ ...s, step: -1 });
+    else if (s.step === 0) popSheet();
     else replaceSheet({ ...s, step: s.step - 1 });
   },
   ciRestart: () => replaceSheet({ ...topSheet(), step: 0 }),
@@ -3319,6 +3362,24 @@ const actions = {
     save();
     renderSettings();
     sfx.bell();
+  },
+  quoteStart: () => replaceSheet({ ...topSheet(), step: 0 }),
+  quoteView: () => pushSheet({ type: 'checkin', step: -1, view: true }),
+  quoteRandom: () => {
+    const s = topSheet();
+    const cur = quoteOf(s).id;
+    let q = getRandomQuote();
+    while (q.id === cur) q = getRandomQuote(); // always a different one
+    replaceSheet({ ...s, quoteId: q.id });
+  },
+  quoteToday: () => replaceSheet({ ...topSheet(), quoteId: null }),
+  quoteShare: () => {
+    const q = quoteOf(topSheet());
+    share(`“${q.quote}”\n— ${q.author}\n\nคำคมวันนี้จากเหมียวสมาธิ 🐱`);
+  },
+  quoteToggle: () => {
+    state.settings.dailyQuote = state.settings.dailyQuote === false;
+    save();
   },
   holyToggle: () => {
     state.settings.holyDays = !state.settings.holyDays;

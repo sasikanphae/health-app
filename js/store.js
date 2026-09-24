@@ -32,6 +32,7 @@ export function defaultState() {
       waterGoal: 8,
       sound: true, // bell / wooden-fish sounds when something is done
       holyDays: true, // show วันพระ and suggest calm activities on those days
+      dailyQuote: true, // the day's quote before the first check-in of the day
       repeatMin: 60, // re-send a reminder that was dismissed without being done (0 = off)
       learn: true, // pattern engine + habits (on-device only); can be turned off in Privacy
       mic: true, // show the microphone button (speech goes through the browser's own service)

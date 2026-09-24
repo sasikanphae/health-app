@@ -984,3 +984,13 @@ circle.pick { fill: #111; }
   }
   .timeline::before { background: #fbf6ea; }
 }
+
+/* daily quote (first check-in of the day) */
+.quote-head { display: flex; align-items: center; gap: 14px; margin: 4px 0 14px; }
+.daily-quote { margin: 0 0 14px; padding: 22px 20px 18px; display: grid; gap: 12px; }
+.daily-quote blockquote { margin: 0; font-size: 1.35rem; font-weight: 600; line-height: 1.5; }
+.daily-quote figcaption { font-weight: 500; }
+.daily-quote .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.quote-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.quote-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.quote-back, .center-block { display: block; margin: 12px auto 0; }
