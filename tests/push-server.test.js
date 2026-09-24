@@ -93,6 +93,9 @@ test('worker: subscribe, upload jobs, cron sends only what is due, gone devices 
 
   assert.equal((await handle(new Request('https://push.example/config', { headers: { Origin: 'https://evil.example' } }), env)).status, 403);
   assert.equal((await (await call('GET', '/config')).json()).publicKey, keys.publicKey);
+  // opened straight in a browser tab (no Origin): the public key only, for checking the server is up
+  assert.equal((await (await handle(new Request('https://push.example/config'), env)).json()).publicKey, keys.publicKey);
+  assert.equal((await handle(new Request('https://push.example/jobs', { method: 'PUT' }), env)).status, 403);
 
   const subscription = { endpoint: 'https://push.example-service.com/send/xyz', keys: ua.keys };
   const { id, token } = await (await call('POST', '/subscribe', { subscription })).json();

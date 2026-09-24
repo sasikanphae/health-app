@@ -58,7 +58,10 @@ function validSubscription(s) {
 }
 
 export async function handle(req, env, deps = {}) {
-  const cors = corsFor(req, env);
+  // /config only returns the public key: fine to open straight in a browser tab
+  // (no Origin header) to check the server is up.
+  const open = req.method === 'GET' && new URL(req.url).pathname === '/config' && !req.headers.get('Origin');
+  const cors = open ? {} : corsFor(req, env);
   if (!cors) return new Response('forbidden origin', { status: 403 });
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   const db = env.DB;
