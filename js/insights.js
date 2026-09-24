@@ -343,3 +343,29 @@ export function specialDay({ key, lastSpecial = null, easy = false, level = null
   }
   return { id: `special-${key}`, kind: 'route', ref: null, title: 'ลองเส้นทางเดินใหม่', text: ROUTE_IDEAS[h % ROUTE_IDEAS.length] };
 }
+
+// ---------- badges for the rewards wall ----------
+// Behaviours done well over the last 7 days (today included). Each badge says
+// how close it is, so a locked one reads as "almost", never as failure.
+export function achievements({ days, expenses = [], today }) {
+  const keys = Array.from({ length: 7 }, (_, i) => addDays(today, -i));
+  const ds = keys.map((k) => days[k]).filter(Boolean);
+  const count = (fn) => ds.filter(fn).length;
+  const sleep = ds.map((d) => sleepHoursOf(d.checkin)).filter((h) => h != null);
+  const ym = today.slice(0, 7);
+  const dayN = Number(today.slice(8));
+  const [y, m] = ym.split('-').map(Number);
+  const prev = new Date(y, m - 2, 1);
+  const prevYm = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+  const spent = (p) => expenses.filter((x) => x.date.startsWith(p) && Number(x.date.slice(8)) <= dayN).reduce((a, x) => a + x.amount, 0);
+  const prevSpent = spent(prevYm);
+  const out = [
+    { id: 'steady', label: 'ทำสม่ำเสมอ', badge: 'check', n: count(usedDay), target: 5, unit: 'วัน' },
+    { id: 'mover', label: 'ขยันขยับ', badge: 'dumbbell', n: count(workedOut), target: 3, unit: 'ครั้ง' },
+    { id: 'hydrated', label: 'สุขภาพดี', badge: 'water', n: count((d) => d.waterMet), target: 4, unit: 'วันน้ำครบ' },
+    { id: 'calm', label: 'ผ่อนคลาย', badge: 'meditate', n: count((d) => d.ticks?.relax || d.workout?.activity === 'mobility' || (d.mood ?? 0) >= 4), target: 3, unit: 'วัน' },
+    { id: 'sleeper', label: 'นอนดี', badge: 'sleep', n: sleep.filter((h) => h >= 7).length, target: 3, unit: 'คืน 7 ชม.+' },
+    { id: 'saver', label: 'ประหยัดได้', badge: 'money', n: prevSpent > 0 && spent(ym) <= prevSpent ? 1 : 0, target: 1, unit: '', note: prevSpent > 0 ? 'ใช้เงินไม่เกินช่วงเดียวกันเดือนก่อน' : 'จดรายจ่ายสักเดือนก่อน แล้วจะเทียบให้' },
+  ];
+  return out.map((a) => ({ ...a, earned: a.n >= a.target }));
+}

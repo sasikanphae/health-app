@@ -57,6 +57,7 @@ export function defaultState() {
     lifts: {}, // machine id -> [{ date, weight, sets, target, completed, intensity }]
     weights: [], // body weight log: [{ date, kg }]
     shopping: {}, // week start key -> [ticked item names]
+    achClaimed: {}, // week start key -> [achievement ids the user collected]
     rewards: [], // [{ id, title, metric, target, start, claimedAt, nearNotified, doneNotified }]
     insightSeen: {}, // pattern id -> date the user said "got it"
     storySeen: null, // week start key of the last weekly story the user opened

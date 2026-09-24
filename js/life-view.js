@@ -2,7 +2,7 @@
 // to-do/appointment and bill sheets, the quick-note panel, and the life items
 // that join today's timeline and the reminder cards. The data rules live in
 // life.js; this file only draws them and wires up taps.
-import { icon } from './icons.js';
+import { icon, badge } from './icons.js';
 import { mascot } from './art.js';
 import { addDays, parseKey } from './health.js';
 import {
@@ -315,7 +315,7 @@ export function createLife(ctx) {
     const tabs = [['plan', 'นัดและบิล'], ['money', 'รายจ่าย'], ['shop', 'ซื้อของ'], ['notes', 'โยนไว้']];
     const body = { plan: planPane, money: moneyPane, shop: shopPane, notes: notesPane }[ui.lifeTab] ?? planPane;
     $('#view-life').innerHTML = `
-      <div class="view-head"><h1>ธุระ</h1></div>
+      <div class="page-title"><h1>ธุระ</h1>${badge('notes', { size: 48 })}</div>
       <div class="seg" role="tablist" aria-label="หมวด">${tabs.map(([k, l]) =>
         `<button role="tab" aria-selected="${ui.lifeTab === k}" data-act="lifeTab" data-tab="${k}">${l}</button>`).join('')}</div>
       ${body()}`;
@@ -342,7 +342,7 @@ export function createLife(ctx) {
     let actions = '';
     if (it.life === 'event') {
       const e = it.ev;
-      ic = EVENT_KINDS[e.kind]?.icon ?? 'list';
+      ic = e.kind === 'appt' ? 'calendar' : 'notes';
       title = esc(e.title);
       sub = e.kind === 'appt' ? `นัดหมาย · ${APPT_TYPES[e.apptType]?.label ?? ''}` : EVENT_KINDS[e.kind]?.label ?? '';
       tick = `<button class="tick" role="checkbox" aria-checked="${it.done}" aria-label="ทำแล้ว" data-act="evTick" data-id="${e.id}">✓</button>`;
@@ -350,7 +350,7 @@ export function createLife(ctx) {
       if (e.kind === 'appt' && leave && !it.done) actions = `<button class="btn soft" data-act="leaveOpen" data-id="${leave}">${icon('door', { size: 18 })}เช็กของก่อนออก</button>`;
     } else {
       const { bill: b, cycle: c } = it;
-      ic = 'receipt';
+      ic = 'money';
       title = `จ่าย${esc(b.title)}`;
       sub = `${it.done ? 'จ่ายแล้ว' : billStatusText(c)}${b.amount ? ` · ~${baht(b.amount)}` : ''}`;
       tick = `<button class="tick" role="checkbox" aria-checked="${it.done}" aria-label="จ่ายแล้ว" data-act="billPaid" data-id="${b.id}" ${it.done ? 'disabled' : ''}>✓</button>`;
@@ -361,7 +361,7 @@ export function createLife(ctx) {
       <span class="tl-time">${it.time ?? 'วันนี้'}</span><span class="tl-dot"></span>
       <div class="tl-card">
         <div class="tl-head">
-          <span class="tl-emoji">${icon(ic)}</span>
+          <span class="tl-emoji">${badge(ic, { size: 40 })}</span>
           <div class="grow" ${editAct} role="button" tabindex="0"><div class="tl-title">${title}</div><div class="tl-sub">${sub}</div></div>
           ${tick}
         </div>

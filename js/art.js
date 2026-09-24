@@ -3,48 +3,11 @@
 // everything follows the theme (and dark mode).
 
 // ---------- mascot ----------
-// A minimal line-drawn cat sitting in meditation. One colour (currentColor),
-// one stroke weight; mood is told by shape only: eyes, ears and posture.
-
-const FACES = {
-  // Bright: eyes open, ears up, three small lines of light.
-  bright: {
-    ears: 'M43 33 41 15 54 27M77 33 79 15 66 27',
-    eyes: '<circle cx="52.5" cy="44" r="1.6" class="m-dot"/><circle cx="67.5" cy="44" r="1.6" class="m-dot"/>',
-    extra: 'M92 24l4-4M95 33h6M86 16l1-6',
-    tilt: '',
-  },
-  // Normal: calm half-closed eyes (ตาหยี).
-  normal: {
-    ears: 'M43 33 41 15 54 27M77 33 79 15 66 27',
-    eyes: '<path d="M49 44.5q3.5 3 7 0M64 44.5q3.5 3 7 0"/>',
-    extra: '',
-    tilt: '',
-  },
-  // Sleepy: ears drooping to the sides, eyes closed, head leaning, a small z.
-  sleepy: {
-    ears: 'M42 36 29 29 45 27M78 36 91 29 75 27',
-    eyes: '<path d="M49 46h7M64 46h7"/>',
-    extra: 'M88 16h6l-6 7h6M97 7h4l-4 5h4',
-    tilt: 'rotate(-6 60 44)',
-  },
-};
-
-export function mascot(mood = 'normal', { size = 120, label = 'แมวนั่งสมาธิ' } = {}) {
-  const f = FACES[mood] ?? FACES.normal;
-  return `<svg class="mascot mood-${mood}" viewBox="0 0 120 120" width="${size}" height="${size}" role="img" aria-label="${label}">
-    <g transform="${f.tilt}">
-      <path d="${f.ears}"/>
-      <path d="M40 40c0-12 9-19 20-19s20 7 20 19c0 11-9 18-20 18s-20-7-20-18Z"/>
-      ${f.eyes}
-      <path d="M57 51l3 2 3-2"/>
-    </g>
-    <path d="M47 58c-8 8-12 20-10 36M73 58c8 8 12 20 10 36"/>
-    <path d="M30 98c8-5 20-7 30-7s22 2 30 7c-8 5-20 7-30 7s-22-2-30-7Z"/>
-    <path d="M52 86c5 4 11 4 16 0"/>
-    <path d="M86 99c9 0 13-5 12-13"/>
-    ${f.extra ? `<path d="${f.extra}"/>` : ''}
-  </svg>`;
+// Three poses from the badge set: smiling (bright), sitting calmly (normal), curled up asleep (sleepy).
+const POSES = { bright: 'cat-happy', normal: 'cat-sit', sleepy: 'cat-sleep' };
+export function mascot(mood = 'normal', { size = 120, label = 'แมวเหมียวสมาธิ' } = {}) {
+  const pose = POSES[mood] ?? POSES.normal;
+  return `<img class="mascot mascot-img badge-ic mood-${mood}" src="img/badges/${pose}.webp" width="${size}" height="${size}" alt="${label}" decoding="async">`;
 }
 
 // ---------- machine line art ----------

@@ -69,6 +69,7 @@ const MOUTHS = {
   3: '<path d="M9 15.5h6"/><circle cx="9.5" cy="10" r=".6"/><circle cx="14.5" cy="10" r=".6"/>',
   4: '<path d="M9 14.5c1 1.2 5 1.2 6 0"/><circle cx="9.5" cy="10" r=".6"/><circle cx="14.5" cy="10" r=".6"/>',
   5: '<path d="M8.5 14c1.3 2 5.7 2 7 0"/><path d="M8.3 10.2c.6-.9 1.8-.9 2.4 0M13.3 10.2c.6-.9 1.8-.9 2.4 0"/>',
+  angry: '<path d="M9 16c1-.8 5-.8 6 0"/><path d="M7.8 9l2.6 1.2M16.2 9l-2.6 1.2"/><circle cx="9.5" cy="11.2" r=".6"/><circle cx="14.5" cy="11.2" r=".6"/>',
 };
 
 export function icon(name, { size = 22, label = '' } = {}) {
@@ -76,6 +77,13 @@ export function icon(name, { size = 22, label = '' } = {}) {
   if (!body) return '';
   const a11y = label ? `role="img" aria-label="${label}"` : 'aria-hidden="true"';
   return `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" ${a11y}>${body}</svg>`;
+}
+
+// Round, black-outlined badges (the app's Neobrutalism icon set, img/badges/*.webp).
+export const BADGES = ['meditate', 'water', 'dumbbell', 'steps', 'sleep', 'meal', 'heart', 'money', 'calendar', 'grocery', 'notes', 'check', 'cat-happy', 'cat-sit', 'cat-sleep'];
+export function badge(name, { size = 40, label = '' } = {}) {
+  const n = BADGES.includes(name) ? name : 'check';
+  return `<img class="badge-ic" src="img/badges/${n}.webp" width="${size}" height="${size}" alt="${label}"${label ? '' : ' aria-hidden="true"'} decoding="async">`;
 }
 
 export function moodIcon(v, { size = 26 } = {}) {

@@ -1,9 +1,24 @@
 // Offline support (network first, cache fallback) and notification button handling.
-const CACHE = 'health-app-v11';
+const CACHE = 'health-app-v12';
 const ASSETS = [
   './',
   'index.html',
   'style.css',
+  'img/badges/calendar.webp',
+  'img/badges/cat-happy.webp',
+  'img/badges/cat-sit.webp',
+  'img/badges/cat-sleep.webp',
+  'img/badges/check.webp',
+  'img/badges/dumbbell.webp',
+  'img/badges/grocery.webp',
+  'img/badges/heart.webp',
+  'img/badges/meal.webp',
+  'img/badges/meditate.webp',
+  'img/badges/money.webp',
+  'img/badges/notes.webp',
+  'img/badges/sleep.webp',
+  'img/badges/steps.webp',
+  'img/badges/water.webp',
   'js/app.js',
   'js/art.js',
   'js/body.js',

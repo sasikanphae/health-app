@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addDays, emptyDay } from '../js/health.js';
 import {
-  findPatterns, findHabit, weeklyStory, rewardProgress, sleepHoursOf, usedDay, monthlyStory, specialDay,
+  findPatterns, findHabit, weeklyStory, rewardProgress, sleepHoursOf, usedDay, monthlyStory, specialDay, achievements,
 } from '../js/insights.js';
 
 const TODAY = '2026-09-23'; // Wednesday
@@ -147,4 +147,19 @@ test('special day: occasional, never on tired days, at most weekly', () => {
   for (let i = 1; i < hits.length; i++) assert.ok(hits[i] >= addDays(hits[i - 1], 6));
   assert.equal(specialDay({ key: hits[0], options, easy: true }), null);
   assert.equal(specialDay({ key: hits[0], options, level: 'rest' }), null);
+});
+
+test('rewards wall: badges from the last 7 days, never "failed"', () => {
+  const days = {};
+  for (let i = 0; i < 5; i++) days[addDays(TODAY, -i)] = day({ water: 3, waterMet: i < 4, ticks: i < 3 ? { relax: true } : {} });
+  days[addDays(TODAY, -1)].workout = done();
+  const a = achievements({ days, today: TODAY, expenses: [{ date: '2026-08-05', amount: 900 }, { date: '2026-09-04', amount: 300 }] });
+  const by = Object.fromEntries(a.map((x) => [x.id, x]));
+  assert.equal(by.steady.earned, true);
+  assert.equal(by.hydrated.earned, true);
+  assert.equal(by.calm.earned, true);
+  assert.equal(by.saver.earned, true);
+  assert.equal(by.mover.earned, false);
+  assert.equal(by.mover.n, 1);
+  assert.equal(a.length, 6);
 });

@@ -13,7 +13,7 @@ import {
   MACHINES, ALTERNATIVES, ROUTINES, MUSCLES, BODY_PARTS, HOME_EXERCISES, exerciseInfo, machineById,
 } from './gym-data.js';
 import { mascot, machineArt, muscleMap } from './art.js';
-import { icon, moodIcon } from './icons.js';
+import { icon, moodIcon, badge } from './icons.js';
 import { lifeDue, billCycle, billDueOn, monthOf, addMonths } from './life.js';
 import {
   arrangeDay, weatherAdapt, travelProfile, travelSession, postponable, isOutdoor, WEATHER, WORKOUT_MINUTES, EVENT_MINUTES,
@@ -35,6 +35,7 @@ import {
 import { recordLift, suggestNext } from './lifts.js';
 import {
   findPatterns, findHabit, weeklyStory, rewardProgress, REWARD_METRICS, monthlyStory, specialDay, sleepHoursOf,
+  achievements,
 } from './insights.js';
 import { holyDays } from './lunar.js';
 import { bell, woodblock, blessing } from './sound.js';
@@ -254,6 +255,13 @@ function sessionIconName(s) {
   return { gym: 'dumbbell', home: 'house', run: 'run', walk: 'walk' }[s.activity] ?? 'leaf';
 }
 const sessionEmoji = (s, size = 18) => icon(sessionIconName(s), { size });
+// Round badge (from the icon set) for a workout in the timeline.
+function sessionBadge(s) {
+  if (!s || s.intensity === 'rest') return 'sleep';
+  if (s.adjusted === 'holy' || s.activity === 'mobility') return 'meditate';
+  return { gym: 'dumbbell', home: 'dumbbell', run: 'steps', walk: 'steps' }[s.activity] ?? 'meditate';
+}
+const tlBadge = (name) => badge(name, { size: 40 });
 
 // Line icons for the option lists (the data files carry labels only).
 const OPTION_ICONS = {
@@ -285,6 +293,35 @@ function ring(p, text, size = 120) {
     <circle class="track" cx="50" cy="50" r="${r}"/>
     <circle class="value" cx="50" cy="50" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}" transform="rotate(-90 50 50)"/>
     <text x="50" y="50" text-anchor="middle" dominant-baseline="central" font-size="${text.length > 3 ? 20 : 26}">${text}</text></svg>`;
+}
+
+// Neobrutalism readiness ring: black outline, white inside, dark arc, "75/100".
+function ringNb(score, max = 100, { size = 124, sub = '' } = {}) {
+  const r = 38;
+  const c = 2 * Math.PI * r;
+  const off = c * (1 - Math.max(0, Math.min(1, score / max)));
+  return `<svg class="ring-nb" viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="${score} จาก ${max}${sub ? ` ${sub}` : ''}">
+    <circle class="outer" cx="50" cy="50" r="47"/>
+    <circle class="track" cx="50" cy="50" r="${r}" stroke-width="12"/>
+    <circle class="value" cx="50" cy="50" r="${r}" stroke-width="12" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}" transform="rotate(-90 50 50)"/>
+    <circle class="inner" cx="50" cy="50" r="31" style="fill:#fff"/>
+    <text x="50" y="${sub ? 47 : 50}" text-anchor="middle" dominant-baseline="central" font-size="${String(score).length > 2 ? 17 : 20}">${score}<tspan font-size="11">/${max}</tspan></text>
+    ${sub ? `<text class="sub" x="50" y="64" text-anchor="middle" font-size="8">${sub}</text>` : ''}</svg>`;
+}
+
+// Progress bar with its number: "6/8 แก้ว".
+function pbar(have, goal, { label = '', unit = '', fill = '', percent = false } = {}) {
+  const pct = goal ? Math.min(100, Math.round((have / goal) * 100)) : 0;
+  const fmt = (n) => Number(n).toLocaleString('th-TH');
+  return `<div class="pg">
+    <div class="pg-top"><span>${label}</span><span class="pg-num">${percent ? `${pct}%` : `${fmt(have)}/${fmt(goal)}`}${unit ? ` <small>${unit}</small>` : ''}</span></div>
+    <div class="pbar ${fill}" role="progressbar" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${have}" aria-label="${label}"><div style="width:${pct}%"></div></div>
+  </div>`;
+}
+
+// Big bold page title with a small black-outlined badge beside it.
+function pageTitle(title, badgeName, extra = '') {
+  return `<div class="page-title"><h1>${title}</h1>${extra}${badge(badgeName, { size: 48 })}</div>`;
 }
 
 function intensityChip(s) {
@@ -788,7 +825,7 @@ function renderCheckin(s) {
     return `${sheetTop('', { close: '✕' })}
       <div class="sheet-mascot">${mascot(lv.mood, { size: 150 })}</div>
       <div class="center">
-        ${ring(c.score, String(c.score), 112)}
+        ${ringNb(c.score, 100, { size: 150 })}
         <div class="question" style="margin:12px 0 4px">${lv.label}</div>
       </div>
       <div class="card">
@@ -877,8 +914,9 @@ function renderSession() {
     return `<button class="session-item${done ? ' done' : ''}" data-act="openExercise" data-id="${item.id}" data-session="1">
       <span class="thumb">${thumbFor(id)}</span>
       <span class="grow"><span class="num">${i + 1}.</span> <b>${esc(infoName(info))}</b><br>
-        <span class="muted small">${rx.timed ? rx.text : `${rx.sets} เซ็ต × ${rx.reps}`}</span>${role}${swapped}</span>
-      <span class="head">${done ? '' : progress}</span>
+        <span class="muted small">${rx.timed ? rx.text : `${rx.sets} เซ็ต × ${rx.reps}`}</span>${role}${swapped}
+        ${rx.timed ? '' : `<span class="pbar sm fill-orange" aria-hidden="true"><span style="width:${Math.min(100, (setsDone(t.day, item.id) / rx.sets) * 100)}%"></span></span>`}</span>
+      <span class="head">${done ? '<span class="done-mark" aria-label="เสร็จแล้ว">✓</span>' : progress}</span>
     </button>`;
   }).join('');
 
@@ -899,7 +937,8 @@ function renderSession() {
       <button class="btn sm soft" data-act="openEquip" data-id="${place.id}">ตั้งค่า</button></div>` : ''}
     ${plan.swapped || plan.dropped ? `<p class="note">ปรับให้เหลือแต่ท่าที่เล่นได้ที่${esc(place.name)}${plan.swapped ? ` · เปลี่ยน ${plan.swapped} ท่า` : ''}${plan.dropped ? ` · ข้าม ${plan.dropped} ท่าที่ไม่มีอุปกรณ์` : ''}</p>` : ''}
     ${prep}
-    <p class="muted small">เล่นตามลำดับจากบนลงล่าง แตะเพื่อดูวิธีเล่น · ทำแล้ว ${doneCount}/${items.length}</p>
+    <div class="card fill-lime">${pbar(doneCount, items.length, { label: '<b>ทำแล้ว</b>', unit: 'ท่า' })}</div>
+    <p class="small">เล่นตามลำดับจากบนลงล่าง แตะเพื่อดูวิธีเล่น</p>
     ${list}
     <div class="sheet-foot">
       ${t.done ? '<p class="center head">เสร็จแล้ววันนี้ เก่งมาก</p>'
@@ -1217,28 +1256,40 @@ function renderToday() {
     save();
     sfx.bless();
   }
-  const glasses = Array.from({ length: Math.max(goal, t.day.water) }, (_, i) =>
-    `<i class="${i < t.day.water ? 'full' : ''}"></i>`).join('');
-  const pct = items.length ? Math.round((done / items.length) * 100) : 0;
   const arranged = t.day.arranged;
 
+  const c = t.day.checkin;
+  const sleepH = sleepHoursOf(c);
+  const sleepLabel = c ? SLEEP_HOURS.find((x) => x.id === c.answers?.sleepHours)?.label : null;
   $('#view-today').innerHTML = `
-    <div class="hero">
-      ${mascot(mood, { size: 112 })}
-      <div class="grow">
-        <h1 class="hello">${timeGreeting(hour)}${name ? ` ${esc(name)}` : ''}</h1>
-        <div class="bubble">${msg}</div>
-        <div class="hero-meta">
-          <span class="muted small">${thaiDate(t.key)}</span>
-          ${t.travel ? `<button class="chip-mini" data-act="travelToggle">${icon('bag', { size: 14 })}โหมดเดินทาง</button>` : ''}
-          ${t.day.weather ? `<span class="chip-mini">${icon(WEATHER[t.day.weather].icon, { size: 14 })}${WEATHER[t.day.weather].label}</span>` : ''}
-        </div>
+    <div class="page-title today-title">
+      <h1 class="hello">${timeGreeting(hour)}${name ? ` ${esc(name)}` : ''}</h1>
+      <span class="cat-circle">${mascot(mood, { size: 76 })}</span>
+    </div>
+    <div class="bubble">${msg}</div>
+    <div class="hero-meta">
+      <span class="small">${thaiDate(t.key)}</span>
+      ${t.travel ? `<button class="chip-mini" data-act="travelToggle">${icon('bag', { size: 14 })}โหมดเดินทาง</button>` : ''}
+      ${t.day.weather ? `<span class="chip-mini">${icon(WEATHER[t.day.weather].icon, { size: 14 })}${WEATHER[t.day.weather].label}</span>` : ''}
+    </div>
+
+    <div class="duo">
+      <button class="card fill-lime ready-card" data-act="checkin" aria-label="${c ? `ความพร้อม ${c.score} จาก 100 แตะเพื่อแก้` : 'เช็กอินตอนเช้า'}">
+        <span class="small">ความพร้อมวันนี้</span>
+        ${c ? ringNb(c.score, 100, { size: 116 }) : `${ringNb(0, 100, { size: 116, sub: 'ยังไม่เช็กอิน' })}`}
+        <b class="small">${c ? LEVELS[c.level].label : 'แตะเพื่อเช็กอิน'}</b>
+      </button>
+      <div class="card fill-sky">
+        ${badge('sleep', { size: 40 })}
+        <span class="small">นอนเมื่อคืน</span>
+        <span class="stat-big">${sleepH != null ? `${sleepH}<small> ชม.</small>` : '–'}</span>
+        <span class="small">${sleepLabel ?? 'บอกแมวตอนเช็กอิน'}</span>
+        ${c?.at ? `<span class="small">เช็กอิน <b class="num">${new Date(c.at).toTimeString().slice(0, 5)}</b></span>` : ''}
       </div>
     </div>
 
-    <div class="progress-line" role="status">
-      <span class="count"><b>${done}/${items.length}</b> เสร็จแล้ว</span>
-      <div class="pbar" aria-hidden="true"><div style="width:${pct}%"></div></div>
+    <div class="card progress-card" role="status">
+      ${pbar(done, items.length, { label: '<b>เช็กลิสต์วันนี้</b>', unit: 'เสร็จแล้ว' })}
     </div>
 
     ${magic.on('whatNow') ? `<button class="btn primary big block what-now" data-act="whatNow">${icon('sparkle', { size: 20 })}วันนี้ทำอะไรดี?</button>` : ''}
@@ -1255,35 +1306,51 @@ function renderToday() {
 
     <ol class="timeline">${items.map((it, i) => (it.life ? life.timelineItem(it, i === nowIdx, whyBlock(it, t)) : timelineItem(it, t, meals, i === nowIdx))).join('')}</ol>
 
+    <div class="checklist-cat">${mascot(done === items.length && items.length ? 'bright' : night ? 'sleepy' : 'normal', { size: 72, label: 'แมวเฝ้าเช็กลิสต์' })}</div>
+
     <div class="card quick">
     <div class="water">
-      <span class="label-ic">${icon('drop')}</span>
-      <span class="grow">
-        <span class="glasses" aria-hidden="true">${glasses}</span>
-        <span class="small muted">${t.day.water}/${goal} แก้ว${pers?.water.extra ? ` · วันนี้ออกกำลังกาย +${pers.water.extra} มล.` : ''}${t.day.weather === 'hot' ? ' · อากาศร้อน +2 แก้ว' : ''}</span>
-      </span>
+      ${badge('water', { size: 40 })}
+      <div class="grow">
+        ${pbar(t.day.water, goal, { label: 'ดื่มน้ำ', unit: 'แก้ว', fill: 'fill-sky' })}
+        ${pers?.water.extra || t.day.weather === 'hot' ? `<span class="small muted">${pers?.water.extra ? `วันนี้ออกกำลังกาย +${pers.water.extra} มล.` : ''}${t.day.weather === 'hot' ? ' · อากาศร้อน +2 แก้ว' : ''}</span>` : ''}
+      </div>
       <button class="icon-btn" data-act="water" data-n="-1" aria-label="ลบ 1 แก้ว" ${t.day.water ? '' : 'disabled'}>−</button>
-      <button class="btn primary" data-act="water" data-n="1">+1 แก้ว</button>
+      <button class="btn primary" data-act="water" data-n="1">+1</button>
     </div>
     ${stepsRow(t, pers)}
-    ${moodRow(t)}
     </div>
+    ${moodPath(t)}
     <div class="tools two">
       <button class="tool" data-act="leaveOpen">${icon('door')}<span>ออกจากบ้าน</span></button>
       <button class="tool" data-act="expQuick">${icon('wallet')}<span>จดรายจ่าย</span></button>
     </div>`;
 }
 
-const MOODS = [
-  { v: 1, l: 'แย่มาก' }, { v: 2, l: 'ไม่ค่อยดี' }, { v: 3, l: 'เฉยๆ' },
-  { v: 4, l: 'ดี' }, { v: 5, l: 'ดีมาก' },
-];
 
-// One tap; feeds the patterns ("days you exercise, your mood is better").
-function moodRow(t) {
-  return `<div class="water mood-row" role="group" aria-label="วันนี้รู้สึกอย่างไร">
-    <span class="label-ic">${icon('heart')}</span><span class="small muted nowrap">ใจวันนี้</span>
-    <div class="moods">${MOODS.map((m) => `<button data-act="mood" data-v="${m.v}" aria-label="${m.l}" aria-pressed="${t.day.mood === m.v}">${moodIcon(m.v)}</button>`).join('')}</div>
+// Mood zigzag: morning mood on top, evening below; the chosen path is drawn bold.
+// Feeds day.mood (latest of the two) so the patterns keep working.
+const MOOD_PATH = [
+  { id: 'happy', l: 'สดใส', v: 5, face: 5 }, { id: 'neutral', l: 'เฉยๆ', v: 3, face: 3 },
+  { id: 'angry', l: 'หงุดหงิด', v: 2, face: 'angry' }, { id: 'sad', l: 'เศร้า', v: 1, face: 1 },
+];
+function moodPath(t) {
+  const mp = t.day.moodPath ?? {};
+  const x = (i) => 12.5 + i * 25;
+  const idx = (id) => MOOD_PATH.findIndex((m) => m.id === id);
+  const all = MOOD_PATH.flatMap((_, a) => MOOD_PATH.map((__, b) => `M${x(a)} 4 L${x(b)} 66`)).join(' ');
+  const pick = mp.am && mp.pm ? `<path class="pick" d="M${x(idx(mp.am))} 4 L${x(idx(mp.pm))} 66"/>`
+    : mp.am || mp.pm ? `<circle class="pick" cx="${x(idx(mp.am ?? mp.pm))}" cy="${mp.am ? 4 : 66}" r="3"/>` : '';
+  const row = (when) => `<div class="mrow" role="radiogroup" aria-label="${when === 'am' ? 'ใจตอนเช้า' : 'ใจตอนเย็น'}">${MOOD_PATH.map((m) =>
+    `<button role="radio" data-act="moodPath" data-when="${when}" data-v="${m.id}" aria-checked="${mp[when] === m.id}" aria-pressed="${mp[when] === m.id}">
+      <span class="dot">${moodIcon(m.face)}</span>${m.l}</button>`).join('')}</div>`;
+  return `<div class="card mood-card">
+    <div class="row"><span class="head grow">ใจวันนี้</span><span class="small">เช้า → เย็น · แตะหรือลากเส้น</span></div>
+    <div class="mood-path" data-mood-path>
+      ${row('am')}
+      <svg viewBox="0 0 100 70" preserveAspectRatio="none" aria-hidden="true"><path class="all" d="${all}"/>${pick}</svg>
+      ${row('pm')}
+    </div>
   </div>`;
 }
 
@@ -1634,6 +1701,13 @@ function renderWrapped(s) {
   return `${sheetTop('สรุปเดือน')}
     <div class="sheet-mascot">${mascot('bright', { size: 110 })}</div>
     <div class="question">${monthName(s.ym)}</div>
+    <div class="duo">
+      <div class="card fill-lime">${badge('dumbbell', { size: 40 })}<span class="small">ออกกำลังกาย</span>
+        <span class="stat-big">${st.stats.workouts}<small> ครั้ง</small></span>${st.stats.gym ? `<span class="small">ยิม ${st.stats.gym} ครั้ง</span>` : ''}</div>
+      <div class="card fill-orange">${badge('steps', { size: 40 })}<span class="small">ก้าวรวม</span>
+        <span class="stat-big">${st.stats.steps >= 10000 ? `${Math.round(st.stats.steps / 1000)}<small>k</small>` : st.stats.steps.toLocaleString('th-TH')}</span><span class="small">ก้าว</span></div>
+    </div>
+    <div class="card fill-sky">${pbar(st.stats.waterPct, 100, { label: '<b>วันที่ดื่มน้ำครบ</b>', fill: 'fill-lav', percent: true })}</div>
     <div class="card story-text">${st.lines.map((l) => `<p>${l}</p>`).join('')}</div>
     ${st.highlights.length ? `<div class="card">${st.highlights.map((h) => `<p class="row">${icon('sparkle', { size: 18 })}<span>${h}</span></p>`).join('')}</div>` : ''}
     <p class="small muted center">ความก้าวหน้าสำคัญกว่าความสมบูรณ์แบบเสมอ</p>
@@ -1688,13 +1762,13 @@ function stepsRow(t, pers) {
   const done = t.day.steps;
   const note = t.day.checkin ? { hard: 'วันนี้สดใส เพิ่มให้นิดนึง', light: '', rest: 'วันนี้ง่วง ลดให้แล้ว' }[t.day.checkin.level] : '';
   if (done != null && !ui.editSteps) {
-    return `<button class="water steps" data-act="editSteps">
-      <span class="label-ic">${icon('steps')}</span>
-      <span class="grow">เดินไป <b>${done.toLocaleString('th-TH')}</b> / ${goal.toLocaleString('th-TH')} ก้าว
-        ${done >= goal ? ' · ถึงเป้าแล้ว' : ''}</span><span class="small muted">แก้</span></button>`;
+    return `<button class="water steps" data-act="editSteps" aria-label="แก้จำนวนก้าว">
+      ${badge('steps', { size: 40 })}
+      <span class="grow">${pbar(done, goal, { label: done >= goal ? 'เดิน · ถึงเป้าแล้ว' : 'เดิน', unit: 'ก้าว', fill: 'fill-orange' })}</span>
+      <span class="small">แก้</span></button>`;
   }
   return `<form class="water steps" data-form="steps">
-    <span class="label-ic">${icon('steps')}</span>
+    ${badge('steps', { size: 40 })}
     <label class="grow">เป้าวันนี้ <b>${goal.toLocaleString('th-TH')}</b> ก้าว${note ? `<br><span class="small muted">${note}</span>` : ''}
       <input type="number" name="steps" inputmode="numeric" min="0" max="100000" placeholder="ใส่จำนวนก้าวจากมือถือ" value="${done ?? ''}" aria-label="จำนวนก้าววันนี้"></label>
     <button class="btn primary sm">บันทึก</button>
@@ -1714,7 +1788,7 @@ function timelineItem(it, t, meals, isNow) {
 
   if (it.id === 'checkin') {
     const c = t.day.checkin;
-    emoji = icon('sun');
+    emoji = tlBadge('heart');
     title = 'เช็กอินตอนเช้า';
     sub = c ? `ความพร้อม ${c.score} · ${LEVELS[c.level].label} · แตะเพื่อแก้` : '5 คำถาม แตะตอบข้อละครั้ง';
     actions = '<button class="btn primary" data-act="checkin">เริ่มเช็กอิน</button>';
@@ -1723,7 +1797,7 @@ function timelineItem(it, t, meals, isNow) {
   } else if (it.slot) {
     const m = meals[it.slot];
     const status = t.day.meals[it.slot]?.status;
-    emoji = icon('meal');
+    emoji = tlBadge('meal');
     title = `${MEAL_SLOTS[it.slot].label}: ${m ? esc(m.name) : 'เลือกกินตามสะดวก'}`;
     sub = status === 'plan' ? 'กินตามนี้แล้ว' : status === 'other' ? 'กินอย่างอื่น ก็โอเค'
       : m ? `${SOURCES[m.src].label} · ~฿${m.price}` : '';
@@ -1733,7 +1807,7 @@ function timelineItem(it, t, meals, isNow) {
     tickBtn = tick('mealTick', `data-slot="${it.slot}"`);
   } else if (it.id === 'workout') {
     const s = t.session;
-    emoji = sessionEmoji(s, 22);
+    emoji = tlBadge(sessionBadge(s));
     title = sessionTitle(s);
     sub = `${intensityChip(s)}${t.entry.moved && !t.done ? ' <span class="badge dusk">ย้ายมาจากวันก่อน</span>' : ''}`;
     // วันพระ and "not today" already explain themselves in their own card above.
@@ -1743,26 +1817,26 @@ function timelineItem(it, t, meals, isNow) {
       : '<button class="btn primary" data-act="startSession">เริ่มเลย</button>';
     tickBtn = tick('workoutTick');
   } else if (it.id === 'relax') {
-    emoji = icon('leaf');
+    emoji = tlBadge('meditate');
     title = ROUTINES.breathe.name;
     sub = 'ลุกจากจอ ยืดตัว หายใจช้าๆ ดื่มน้ำสักอึก';
     actions = '<button class="btn soft" data-act="openExercise" data-id="breathe">ดูวิธี</button>';
     tickBtn = tick('tick', 'data-id="relax"');
   } else if (it.id === 'special') {
     const sp = t.day.special;
-    emoji = icon('sparkle');
+    emoji = tlBadge('notes');
     title = esc(sp.title);
     sub = esc(sp.text);
     if (sp.kind === 'exercise') actions = `<button class="btn soft" data-act="openExercise" data-id="${sp.ref}">ดูวิธีเล่น</button>`;
     tickBtn = tick('tick', 'data-id="special"');
   } else if (it.id === 'rest') {
-    emoji = icon('moon');
+    emoji = tlBadge('sleep');
     title = 'วันพัก';
     sub = 'ยืดเส้นเบาๆ 10 นาทีถ้าอยาก ไม่ทำก็ไม่เป็นไร';
     actions = '<button class="btn soft" data-act="openExercise" data-id="mobility">ดูท่ายืดเส้น</button>';
     tickBtn = tick('tick', 'data-id="rest"');
   } else {
-    emoji = icon('bed');
+    emoji = tlBadge('sleep');
     title = 'วางมือถือ เตรียมนอน';
     sub = 'นอนพอ พรุ่งนี้แมวจะได้สดใส';
     tickBtn = tick('tick', 'data-id="winddown"');
@@ -1838,7 +1912,7 @@ function renderWeek() {
   }
 
   $('#view-week').innerHTML = `
-    <div class="view-head"><h1>ปฏิทิน</h1></div>
+    ${pageTitle('ปฏิทิน', 'calendar')}
     <div class="card cal-card">
       <div class="row between">
         <button class="icon-btn" data-act="calMonth" data-n="-1" aria-label="เดือนก่อน">${icon('back', { size: 18 })}</button>
@@ -1918,7 +1992,7 @@ function renderFood() {
   const toBuy = shop.items.filter((i) => !i.staple && !ticked.has(i.name)).length + state.shopList.filter((c) => !c.done).length;
 
   $('#view-food').innerHTML = `
-    <div class="view-head"><h1>แผนอาหาร</h1></div>
+    ${pageTitle('แผนอาหาร', 'meal')}
     <p class="muted small">ไม่ต้องนับแคลอรี่ แค่กดว่ากินตามนี้ หรือกินอย่างอื่นก็พอ</p>
     <div class="day-strip">${t.plan.week.map((d) => {
       const dt = parseKey(d.key);
@@ -1946,7 +2020,7 @@ function renderGym() {
   const t = computeToday();
   const preview = t.done ? null : (t.day.active ?? gymSessionToday({ plan: t.plan, today: t.key, days: state.days, profile: t.p }));
   $('#view-gym').innerHTML = `
-    <div class="view-head"><h1>ยิม</h1></div>
+    ${pageTitle('วันนี้ไปยิม', 'dumbbell')}
     <div class="card">
       <div class="hero">${mascot(t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'bright', { size: 90 })}
         <div class="grow">${t.done ? '<b>วันนี้ออกกำลังกายแล้ว เก่งมาก</b>'
@@ -2036,57 +2110,47 @@ function renderMe() {
   const el = $('#view-me');
   if (!pers) {
     el.innerHTML = `
-      <div class="view-head"><h1>ของฉัน</h1></div>
+      ${pageTitle('ของฉัน', 'heart')}
       <div class="card center">
         <div class="sheet-mascot">${mascot('normal', { size: 110 })}</div>
         <p>บอกน้ำหนัก ส่วนสูง อายุ และเพศหน่อย<br>แมวจะคำนวณ BMI แคลอรี่ น้ำ และก้าวเดินให้เอง</p>
         <button class="btn primary big block" data-act="editBody">กรอกข้อมูลร่างกาย</button>
       </div>
-      ${storyCard(t)}${rewardsCard(t)}
+      ${sleepChart(t)}${badgeWall(t)}${storyCard(t)}${rewardsCard(t)}
       <button class="btn soft block" data-act="tab" data-view="settings">ตั้งค่าอื่นๆ</button>`;
     return;
   }
 
-  const { bmi: b, bmiInfo: info, cal, water, steps, latest, body } = pers;
+  const { bmi: b, bmiInfo: info, cal, steps, latest, body } = pers;
   const trend = weightTrend(state.weights, t.key);
   const since = daysSince(latest.date, t.key);
   const changeText = trend.change == null ? 'ชั่งอีกสักครั้งจะเห็นแนวโน้ม'
     : trend.change === 0 ? 'คงที่ในช่วง 30 วัน'
       : `${trend.change > 0 ? '+' : '−'}${kgText(Math.abs(trend.change))} กก. ใน 30 วัน`;
-  const intensityWord = { hard: 'วันหนัก', light: 'วันเบา', rest: '' };
 
   el.innerHTML = `
-    <div class="view-head"><h1>ของฉัน</h1></div>
-    <div class="hero">${mascot(t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal', { size: 84 })}
-      <div class="bubble grow small">ตัวเลขทุกอย่างอัปเดตเองเมื่อชั่งน้ำหนัก เช็กอิน หรือออกกำลังกาย</div></div>
+    ${pageTitle('ของฉัน', 'heart')}
+    <div class="bubble">ตัวเลขทุกอย่างอัปเดตเองเมื่อชั่งน้ำหนัก เช็กอิน หรือออกกำลังกาย</div>
 
-    <div class="stats">
-      <div class="stat">
-        <div class="stat-label">BMI</div>
-        <div class="stat-value">${b.toFixed(1)}</div>
-        <span class="badge ${info.key === 'normal' ? 'gold' : 'lotus'}">${info.label}</span>
+    <div class="duo">
+      <div class="card fill-lime">
+        <span class="small">BMI</span>
+        <span class="stat-big">${b.toFixed(1)}</span>
+        <span class="small"><b>${info.label}</b></span>
       </div>
-      <div class="stat">
-        <div class="stat-label">แคลอรี่ต่อวัน</div>
-        <div class="stat-value">${cal.kcal.toLocaleString('th-TH')}</div>
-        <span class="small muted">kcal · ${WEIGHT_GOALS[cal.goal].label}</span>
-      </div>
-      <div class="stat">
-        <div class="stat-label">น้ำวันนี้</div>
-        <div class="stat-value">${(water.ml / 1000).toFixed(1)} <small>ลิตร</small></div>
-        <span class="small muted">${water.glasses} แก้ว${water.extra ? ` · +${water.extra} มล. ${intensityWord[t.session?.intensity] ?? ''}` : ''}</span>
-      </div>
-      <div class="stat">
-        <div class="stat-label">น้ำหนักล่าสุด</div>
-        <div class="stat-value">${kgText(latest.kg)} <small>กก.</small></div>
-        <span class="small muted">${since === 0 ? 'วันนี้' : `${since} วันก่อน`} · ${changeText}</span>
-      </div>
-      <div class="stat wide">
-        <div class="stat-label">ก้าวเดินวันนี้</div>
-        <div class="stat-value">${(t.day.steps ?? 0).toLocaleString('th-TH')} <small>/ ${steps.toLocaleString('th-TH')} ก้าว</small></div>
-        <span class="small muted">เป้าปรับตามความพร้อม${t.day.checkin ? ` (${LEVELS[t.day.checkin.level].label})` : ' · เช็กอินแล้วแมวจะปรับให้'}</span>
+      <div class="card fill-orange">
+        <span class="small">น้ำหนักล่าสุด</span>
+        <span class="stat-big">${kgText(latest.kg)}<small> กก.</small></span>
+        <span class="small">${changeText}</span>
       </div>
     </div>
+    <div class="card">
+      ${pbar(t.day.water, waterGoalToday(t), { label: '<b>น้ำวันนี้</b>', unit: 'แก้ว', fill: 'fill-sky' })}
+      <div style="height:12px"></div>
+      ${pbar(t.day.steps ?? 0, steps, { label: '<b>ก้าววันนี้</b>', unit: 'ก้าว', fill: 'fill-orange' })}
+    </div>
+    ${sleepChart(t)}
+    ${badgeWall(t)}
 
     <div class="card">
       <h2>BMI ${b.toFixed(1)} · ${info.label}</h2>
@@ -2126,6 +2190,49 @@ function renderMe() {
     <button class="btn soft block" data-act="tab" data-view="settings">ตั้งค่าอื่นๆ</button>
     <p class="muted small center">ตัวเลขเป็นค่าประมาณจากสูตรมาตรฐาน ไม่ใช่คำแนะนำทางการแพทย์</p>`;
   bindChart(el.querySelector('.wchart'), trend.points);
+}
+
+// Sleep over the last 7 days (from check-ins): one series, today in black,
+// every bar carries its value so colour never has to be read.
+function sleepChart(t) {
+  const keys = Array.from({ length: 7 }, (_, i) => addDays(t.key, i - 6));
+  const hrs = keys.map((k) => sleepHoursOf(state.days[k]?.checkin));
+  const known = hrs.filter((h) => h != null);
+  const max = 9;
+  const wd = (k) => parseKey(k).toLocaleDateString('th-TH', { weekday: 'narrow' });
+  const avgH = known.length ? (known.reduce((a, b) => a + b, 0) / known.length).toFixed(1) : null;
+  return `<div class="card fill-lav sleep-card">
+    <div class="row between"><h2>ชั่วโมงนอน 7 วัน</h2>${badge('sleep', { size: 40 })}</div>
+    <p class="small">${avgH ? `เฉลี่ย <b class="num">${avgH}</b> ชม. · จากการเช็กอินตอนเช้า` : 'เช็กอินตอนเช้าแล้วกราฟจะขึ้นเอง'}</p>
+    <div class="bars" role="img" aria-label="ชั่วโมงนอน 7 วันล่าสุด: ${keys.map((k, i) => `${shortDate(k)} ${hrs[i] ?? 'ไม่มีข้อมูล'}`).join(', ')}">
+      ${keys.map((k, i) => `<div class="b${k === t.key ? ' hi' : ''}${hrs[i] == null ? ' none' : ''}" title="${shortDate(k)}: ${hrs[i] != null ? `${hrs[i]} ชม.` : 'ไม่ได้เช็กอิน'}">
+        <i style="height:${hrs[i] != null ? Math.max(6, (hrs[i] / max) * 100) : 6}%"></i></div>`).join('')}
+    </div>
+    <div class="bars-x">${keys.map((k, i) => `<span${k === t.key ? ' class="today"' : ''}><b>${hrs[i] ?? '–'}</b>${k === t.key ? 'วันนี้' : wd(k)}</span>`).join('')}</div>
+  </div>`;
+}
+
+// Rewards wall: badges earned this week around the cat, one big button to collect them.
+function badgeWall(t) {
+  const list = achievements({ days: state.days, expenses: state.expenses, today: t.key });
+  const ws = weekStart(t.key);
+  const got = new Set(state.achClaimed?.[ws] ?? []);
+  const ready = list.filter((a) => a.earned && !got.has(a.id));
+  const SPOTS = ['1 / 1', '1 / 3', '2 / 1', '2 / 3', '3 / 1', '3 / 3']; // row / col around the cat
+  const cell = (a, i) => `<div class="ach${a.earned ? '' : ' locked'}" style="grid-area:${SPOTS[i]}" title="${a.note ?? `${a.n}/${a.target} ${a.unit}`}">
+    <span class="medal">${badge(a.badge, { size: 64, label: a.label })}</span>
+    <span>${a.label}</span>
+    <span class="small num">${got.has(a.id) ? 'เก็บแล้ว' : a.unit ? `${Math.min(a.n, a.target)}/${a.target}` : a.earned ? 'ได้แล้ว' : '–'}</span>
+  </div>`;
+  return `<div class="card fill-yellow">
+    <div class="row between"><h2>รางวัลสัปดาห์นี้</h2><span class="small num">${list.filter((a) => a.earned).length}/${list.length}</span></div>
+    <div class="wall">
+      <div class="center-cat">${mascot(ready.length ? 'bright' : 'normal', { size: 112 })}</div>
+      ${list.map(cell).join('')}
+    </div>
+    <button class="btn primary big block" data-act="collectBadges" ${ready.length ? '' : 'disabled'}>${ready.length ? `เก็บรางวัล (${ready.length})` : 'ยังไม่มีรางวัลให้เก็บ'}</button>
+    <p class="small center">นับจาก 7 วันล่าสุด ไม่ได้ก็ไม่เป็นไร สัปดาห์หน้าเริ่มใหม่</p>
+  </div>`;
 }
 
 // Weekly story: a few friendly sentences instead of a table.
@@ -2325,7 +2432,7 @@ function renderSettings() {
 
   $('#view-settings').innerHTML = `
     <div class="view-head"><button class="btn ghost sm" data-act="tab" data-view="me">‹ ของฉัน</button></div>
-    <h1>ตั้งค่า</h1>
+    ${pageTitle('ตั้งค่า', 'check')}
     <div class="card">
       <h2>ข้อมูลของฉัน</h2>
       <form class="row" data-form="name">
@@ -2738,6 +2845,7 @@ function handleReminderAction({ id, type, action, ref }) {
 // ---------- view switching ----------
 function showView(view) {
   ui.view = view;
+  document.body.dataset.view = view;
   document.querySelectorAll('.tabs [data-view]').forEach((t) =>
     t.setAttribute('aria-selected', String(t.dataset.view === (view === 'settings' ? 'me' : view))));
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${view}`));
@@ -2928,6 +3036,30 @@ const actions = {
     else completeWorkout(t.session);
   },
   goGym: () => startSession({ gym: true }),
+  collectBadges: () => {
+    const t = computeToday();
+    const ws = weekStart(t.key);
+    const got = new Set(state.achClaimed?.[ws] ?? []);
+    const ready = achievements({ days: state.days, expenses: state.expenses, today: t.key }).filter((a) => a.earned && !got.has(a.id));
+    if (!ready.length) return;
+    state.achClaimed = { [ws]: [...got, ...ready.map((a) => a.id)] }; // only this week is kept
+    save();
+    sfx.bless();
+    toast(`เก็บแล้ว: ${ready.map((a) => a.label).join(' · ')} เก่งมาก`);
+    render();
+  },
+  moodPath: (d) => {
+    const day = editDay(todayKey());
+    const mp = { ...(day.moodPath ?? {}) };
+    mp[d.when] = mp[d.when] === d.v ? null : d.v;
+    if (d.from) mp[d.when === 'am' ? 'pm' : 'am'] = d.from;
+    day.moodPath = mp;
+    const last = mp.pm ?? mp.am;
+    day.mood = last ? MOOD_PATH.find((m) => m.id === last).v : null;
+    save();
+    render();
+    if (day.mood) sfx.knock();
+  },
   mood: (d) => {
     const day = editDay(todayKey());
     const v = Number(d.v);
@@ -3529,6 +3661,24 @@ document.addEventListener('click', (e) => {
   if (el.dataset.close && ui.sheets.length) popSheet();
   actions[el.dataset.act]?.(el.dataset, el, e);
   magic.updateFab();
+});
+// Mood zigzag: drag from a morning mood to an evening one (or back) draws the path.
+let moodDrag = null;
+document.addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('[data-act="moodPath"]');
+  moodDrag = b ? { when: b.dataset.when, v: b.dataset.v } : null;
+  if (b) b.releasePointerCapture?.(e.pointerId);
+});
+document.addEventListener('pointerup', (e) => {
+  const from = moodDrag;
+  moodDrag = null;
+  if (!from) return;
+  const b = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-act="moodPath"]');
+  if (!b || b.dataset.when === from.when) return;
+  ui.userActed = true;
+  const day = getDay(todayKey());
+  if (day.moodPath?.[b.dataset.when] === b.dataset.v) editDay(todayKey()).moodPath[b.dataset.when] = null; // keep the drop target selected
+  actions.moodPath({ when: b.dataset.when, v: b.dataset.v, from: from.v });
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#quicknote').hidden) life.closeNote();
