@@ -32,6 +32,9 @@ export function defaultState() {
       sound: true, // bell / wooden-fish sounds when something is done
       holyDays: true, // show วันพระ and suggest calm activities on those days
       repeatMin: 60, // re-send a reminder that was dismissed without being done (0 = off)
+      learn: true, // pattern engine + habits (on-device only); can be turned off in Privacy
+      mic: true, // show the microphone button (speech goes through the browser's own service)
+      travel: { on: false }, // travel mode: { on, since, until|null }
       reminders: [
         { id: 'r-checkin', type: 'checkin', time: '07:30', enabled: true },
         { id: 'r-water1', type: 'water', time: '10:00', enabled: true },
@@ -55,6 +58,9 @@ export function defaultState() {
     expenses: [], // [{ id, date, cat, amount, at }]
     notes: [], // [{ id, text, at, editedAt? }]
     shopList: [], // household items added by hand: [{ id, text, done }]
+    inbox: [], // "โยนไว้ก่อน" history: [{ id, raw, item, ref: { type, id, date? }, at }]
+    lastSpecial: null, // date of the last "special day" suggestion
+    wrappedSeen: null, // 'YYYY-MM' of the last monthly story opened from Today
   };
 }
 
@@ -84,7 +90,7 @@ export function normalize(raw) {
     state.days[key] = { ...emptyDay(), ...day };
   }
   if (!Array.isArray(state.weights)) state.weights = [];
-  for (const k of ['events', 'bills', 'expenses', 'notes', 'shopList']) {
+  for (const k of ['events', 'bills', 'expenses', 'notes', 'shopList', 'inbox']) {
     if (!Array.isArray(state[k])) state[k] = [];
   }
   if (!Array.isArray(state.leaveLists)) state.leaveLists = defaultLeaveLists();

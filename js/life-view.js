@@ -144,7 +144,7 @@ export function createLife(ctx) {
 
   function billStatusText(c) {
     if (c.paid) return `จ่ายแล้ว · รอบหน้า ${shortDate(c.next)}`;
-    if (c.status === 'overdue') return `เลยกำหนดมา ${-c.daysLeft} วัน`;
+    if (c.status === 'overdue') return `ยังไม่ได้จ่าย (ผ่านมา ${-c.daysLeft} วัน) จ่ายตอนสะดวกได้เลย`;
     if (c.status === 'today') return 'ครบกำหนดวันนี้';
     return `อีก ${c.daysLeft} วัน · ${shortDate(c.due)}`;
   }
@@ -207,9 +207,9 @@ export function createLife(ctx) {
         <div class="row between"><h2 class="flush">งานและธุระ</h2><button class="btn ghost sm" data-act="eventNew" data-kind="work">${icon('plus', { size: 18 })}เพิ่ม</button></div>
         ${tasks.length ? tasks.slice(0, 12).map((e) => listRow({
           ic: EVENT_KINDS[e.kind]?.icon ?? 'list', title: esc(e.title), act: 'eventEdit', id: e.id, alert: e.date < t,
-          sub: `${e.date < t ? `ค้างจาก${dayLabel(e.date)}` : when(e)} · ${EVENT_KINDS[e.kind]?.label ?? ''}`,
+          sub: `${e.date < t ? `ยกมาจาก${dayLabel(e.date)} · ทำเมื่อพร้อม` : when(e)} · ${EVENT_KINDS[e.kind]?.label ?? ''}`,
           side: `<button class="tick" role="checkbox" aria-checked="false" aria-label="ทำแล้ว" data-act="evTick" data-id="${e.id}">✓</button>`,
-        })).join('') : '<p class="muted small">ไม่มีอะไรค้าง สบายใจได้</p>'}
+        })).join('') : '<p class="muted small">ไม่มีอะไรรออยู่ สบายใจได้</p>'}
       </div>
       <div class="card">
         <div class="row between"><h2 class="flush">บิลประจำเดือน</h2><button class="btn ghost sm" data-act="billNew">${icon('plus', { size: 18 })}เพิ่ม</button></div>
@@ -292,22 +292,25 @@ export function createLife(ctx) {
       </div>`;
   }
 
+  // Everything thrown into "โยนไว้ก่อน" (with its category, fixable) and the ideas/notes.
   function notesPane() {
     const notes = [...state.notes].sort((a, b) => b.at - a.at);
-    if (!notes.length) {
+    const log = ctx.inboxPane();
+    if (!notes.length && !log) {
       return `<div class="empty">${mascot('normal', { size: 96 })}
-        <p class="muted">ยังไม่มีโน้ต แตะปุ่มดินสอมุมขวาล่าง จดได้จากทุกหน้า</p>
-        <button class="btn soft" data-act="noteOpen">${icon('pen', { size: 18 })}จดโน้ต</button></div>`;
+        <p class="muted">ยังไม่มีอะไรเลย พิมพ์หรือพูดใส่ช่อง "โยนไว้ก่อน" หรือแตะปุ่มดินสอมุมขวาล่าง ได้จากทุกหน้า</p>
+        <button class="btn soft" data-act="noteOpen">${icon('pen', { size: 18 })}โยนไว้ก่อน</button></div>`;
     }
-    return notes.map((n) => `<div class="card note-card">
-      <button class="plain grow" data-act="noteEdit" data-id="${n.id}">
-        <span class="note-text">${esc(n.text)}</span>
-        <span class="small muted">${dayLabel(ctx.dateKeyOf(n.at))} ${new Date(n.at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.</span></button>
-      <button class="icon-btn" data-act="noteDel" data-id="${n.id}" aria-label="ลบโน้ต">${icon('x', { size: 16 })}</button></div>`).join('');
+    return `${log}
+      ${notes.length ? `<h3>ไอเดียและโน้ต</h3>${notes.map((n) => `<div class="card note-card">
+        <button class="plain grow" data-act="noteEdit" data-id="${n.id}">
+          <span class="note-text">${esc(n.text)}</span>
+          <span class="small muted">${dayLabel(ctx.dateKeyOf(n.at))} ${new Date(n.at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.</span></button>
+        <button class="icon-btn" data-act="noteDel" data-id="${n.id}" aria-label="ลบโน้ต">${icon('x', { size: 16 })}</button></div>`).join('')}` : ''}`;
   }
 
   function renderLife() {
-    const tabs = [['plan', 'นัดและบิล'], ['money', 'รายจ่าย'], ['shop', 'ซื้อของ'], ['notes', 'โน้ต']];
+    const tabs = [['plan', 'นัดและบิล'], ['money', 'รายจ่าย'], ['shop', 'ซื้อของ'], ['notes', 'โยนไว้']];
     const body = { plan: planPane, money: moneyPane, shop: shopPane, notes: notesPane }[ui.lifeTab] ?? planPane;
     $('#view-life').innerHTML = `
       <div class="view-head"><h1>ธุระ</h1></div>
@@ -350,6 +353,7 @@ export function createLife(ctx) {
       sub = `${it.done ? 'จ่ายแล้ว' : billStatusText(c)}${b.amount ? ` · ~${baht(b.amount)}` : ''}`;
       tick = `<button class="tick" role="checkbox" aria-checked="${it.done}" aria-label="จ่ายแล้ว" data-act="billPaid" data-id="${b.id}" ${it.done ? 'disabled' : ''}>✓</button>`;
     }
+    if (it.moved && !it.done) sub += ` <span class="badge">${it.planned ? `แมวย้ายจาก ${it.planned}` : 'แมวหาเวลาให้'}</span>`;
     const editAct = it.life === 'event' ? `data-act="eventEdit" data-id="${it.ev.id}"` : `data-act="billEdit" data-id="${it.bill.id}"`;
     return `<li class="${cls}">
       <span class="tl-time">${it.time ?? 'วันนี้'}</span><span class="tl-dot"></span>
@@ -375,7 +379,7 @@ export function createLife(ctx) {
       return { text, time: e.time ? `${e.time} น.` : dayLabel(e.date), main };
     }
     const b = billById(c.ref);
-    const text = c.stage === 'overdue' ? `${b.title} เลยกำหนดมา ${-c.daysLeft} วันแล้ว`
+    const text = c.stage === 'overdue' ? `${b.title} ยังรอจ่ายอยู่ ไม่เป็นไร จ่ายตอนสะดวกนะ`
       : c.stage === 'today' ? `วันนี้ครบกำหนดจ่าย${b.title}` : `อีก ${c.daysLeft} วันถึงวันจ่าย${b.title}`;
     return { text, time: shortDate(c.due), main: `<button class="btn primary big block" data-act="billPaid" data-id="${b.id}">จ่ายแล้ว</button>` };
   }
@@ -391,10 +395,12 @@ export function createLife(ctx) {
     el.hidden = false;
     const ta = el.querySelector('textarea');
     ta.value = n ? n.text : ui.noteDraft ?? '';
-    el.querySelector('.qn-title').textContent = n ? 'แก้โน้ต' : 'จดโน้ตเร็ว';
+    el.querySelector('.qn-title').textContent = n ? 'แก้โน้ต' : 'โยนไว้ก่อน';
+    el.querySelector('[data-act=mic]')?.toggleAttribute('hidden', !!n || state.settings.mic === false);
     ta.focus();
   }
   function closeNote() {
+    if (document.querySelector('#quicknote.listening')) return;
     const el = $('#quicknote');
     if (!ui.noteEdit) ui.noteDraft = el.querySelector('textarea').value;
     el.hidden = true;
@@ -449,7 +455,7 @@ export function createLife(ctx) {
         changed();
       });
     },
-    eventNew: (d) => ctx.pushSheet({ type: 'event', kind: d.kind || 'personal' }),
+    eventNew: (d) => ctx.pushSheet({ type: 'event', kind: d.kind || 'personal', date: d.date || undefined }),
     eventEdit: (d) => ctx.pushSheet({ type: 'event', id: d.id }),
     eventDel: (d) => {
       const idx = state.events.findIndex((e) => e.id === d.id);
@@ -621,22 +627,23 @@ export function createLife(ctx) {
         return;
       }
       const n = ui.noteEdit ? state.notes.find((x) => x.id === ui.noteEdit) : null;
-      if (n) {
-        n.text = text;
-        n.editedAt = Date.now();
-      } else {
-        state.notes.push({ id: ctx.newId(), text, at: Date.now() });
-      }
       ui.noteDraft = '';
       form.elements.text.value = '';
       closeNote();
+      if (!n) {
+        // Anything typed here goes through "โยนไว้ก่อน" and gets a category.
+        ctx.inboxSubmit(text);
+        return;
+      }
+      n.text = text;
+      n.editedAt = Date.now();
       changed();
-      ctx.toast(n ? 'แก้โน้ตแล้ว' : 'จดไว้แล้ว ดูได้ที่ ธุระ › โน้ต');
+      ctx.toast('แก้โน้ตแล้ว');
     },
   };
 
   return {
     renderLife, renderLeave, renderEvent, renderBill, todayItems, timelineItem, alertInfo, alive,
-    closeNote, actions, forms,
+    openNote, closeNote, actions, forms,
   };
 }

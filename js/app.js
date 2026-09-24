@@ -7,14 +7,18 @@ import {
 } from './planner.js';
 import {
   MEAL_SLOTS, FOOD_MODES, BUDGETS, ALLERGIES, AVOID, SOURCES, MENUS, dayMeals, mealDayType,
-  shoppingList, DAY_TYPE_LABEL,
+  shoppingList, DAY_TYPE_LABEL, candidates,
 } from './meals.js';
 import {
-  MACHINES, ALTERNATIVES, ROUTINES, MUSCLES, BODY_PARTS, exerciseInfo, machineById,
+  MACHINES, ALTERNATIVES, ROUTINES, MUSCLES, BODY_PARTS, HOME_EXERCISES, exerciseInfo, machineById,
 } from './gym-data.js';
 import { mascot, machineArt, muscleMap } from './art.js';
 import { icon, moodIcon } from './icons.js';
-import { lifeDue } from './life.js';
+import { lifeDue, billCycle, billDueOn, monthOf, addMonths } from './life.js';
+import {
+  arrangeDay, weatherAdapt, travelProfile, travelSession, postponable, isOutdoor, WEATHER, WORKOUT_MINUTES, EVENT_MINUTES,
+} from './arrange.js';
+import { createInbox } from './inbox-view.js';
 import { createLife } from './life-view.js';
 import {
   ACTIVITY_LEVELS, WEIGHT_GOALS, SEXES, LIMITS, bmi, bmiInfo, calorieTarget, waterGoal, stepGoal,
@@ -22,12 +26,12 @@ import {
 } from './body.js';
 import { recordLift, suggestNext } from './lifts.js';
 import {
-  findPatterns, findHabit, weeklyStory, rewardProgress, REWARD_METRICS,
+  findPatterns, findHabit, weeklyStory, rewardProgress, REWARD_METRICS, monthlyStory, specialDay, sleepHoursOf,
 } from './insights.js';
 import { holyDays } from './lunar.js';
 import { bell, woodblock, blessing } from './sound.js';
 import {
-  greeting, cheer, LEVEL_ADVICE, ADJUST_TEXT, REMINDER_TEXT,
+  greeting, cheer, pick, NIGHT_LINES, LEVEL_ADVICE, ADJUST_TEXT, REMINDER_TEXT,
 } from './copy.js';
 import {
   load, save as persist, newId, normalize, defaultState, defaultProfile, photos, resizePhoto,
@@ -97,20 +101,39 @@ $('#toast-undo').addEventListener('click', () => {
 });
 
 // ---------- the plan for today ----------
+// Travel mode: on until the user turns it off (or its end date passes).
+const travelOn = (key = todayKey()) => {
+  const tr = state.settings.travel;
+  return !!tr?.on && (!tr.until || key <= tr.until);
+};
+// The profile the planners see: without gym and kitchen while travelling.
+const planProfile = (key = todayKey()) => (travelOn(key) ? travelProfile(profile()) : profile());
+
+// "ลดโปรแกรม" accepted from a pattern card: hard → light, light → stretching.
+const lighten = (s) => (s.intensity === 'hard'
+  ? { ...s, intensity: 'light', adjusted: 'pattern' }
+  : { ...s, kind: 'cardio', focus: null, intensity: 'rest', activity: 'mobility', adjusted: 'pattern' });
+
 function computeToday() {
   const key = todayKey();
-  const p = profile();
+  const p = planProfile(key);
   const plan = planWeek({ profile: p, today: key, days: state.days });
   const entry = plan.week.find((d) => d.isToday);
   const day = getDay(key);
   // Once a workout is started, keep that exact session for the rest of the day.
   let session = entry.done ? entry.session : (day.active ?? entry.session);
   const holy = state.settings.holyDays ? holyDays(key, key)[key] ?? null : null;
+  const travel = travelOn(key);
   if (session && !entry.done) {
     if (day.easy) session = gentle(session, 'easy', key);
     else if (holy && !day.active && !day.holyKeep && session.intensity === 'hard') session = gentle(session, 'holy', key);
+    else if (!day.active) {
+      if (travel) session = travelSession(session);
+      if (day.weather) session = weatherAdapt(session, day.weather);
+      if (day.lighten) session = lighten(session);
+    }
   }
-  return { key, p, plan, entry, day, session, done: entry.done, holy };
+  return { key, p, plan, entry, day, session, done: entry.done, holy, travel };
 }
 
 // A soft stand-in for today's session ("not today" mode, or a calm วันพระ).
@@ -130,10 +153,15 @@ const sfx = {
 };
 
 function mealsFor(key, session) {
-  const p = profile();
+  const p = planProfile(key);
   const day = getDay(key);
   const slots = dayTimeline({ profile: p, session }).filter((i) => i.slot).map((i) => i.slot);
   const meals = dayMeals({ key, food: p.food, dayType: mealDayType(session), slots, swaps: day.mealSwaps });
+  // "ลองเมนูใหม่" from a special day replaces that meal.
+  for (const [slot, id] of Object.entries(day.mealPick ?? {})) {
+    const m = MENUS.find((x) => x.id === id);
+    if (m && slots.includes(slot)) meals[slot] = m;
+  }
   // A meal already ticked keeps the menu it was ticked with.
   for (const slot of slots) {
     const id = day.meals[slot]?.menuId;
@@ -174,9 +202,10 @@ const softSteps = (steps) => Math.max(2000, Math.round((steps * 0.5) / 500) * 50
 // Glasses of water for today: personal when body data exists, otherwise the manual setting.
 function waterGoalToday(t = computeToday()) {
   const pers = personal(t);
-  if (pers) return pers.water.glasses;
+  const hot = t.day.weather === 'hot' ? 2 : 0; // a hot day needs more water
+  if (pers) return pers.water.glasses + hot;
   const goal = state.settings.waterGoal;
-  return t.day.easy ? Math.max(4, Math.round(goal * 0.75)) : goal;
+  return (t.day.easy ? Math.max(4, Math.round(goal * 0.75)) : goal) + hot;
 }
 
 function stepGoalToday(t = computeToday(), pers = personal(t)) {
@@ -523,6 +552,9 @@ function renderSheet() {
     checkin: renderCheckin,
     session: renderSession,
     exercise: renderExercise,
+    arrange: renderArrange,
+    wrapped: renderWrapped,
+    review: inbox.renderReview,
     leave: life.renderLeave,
     event: life.renderEvent,
     bill: life.renderBill,
@@ -620,7 +652,9 @@ function renderOnboard(s) {
     case 0:
       return `${cat('bright', 170)}
         <div class="question">สวัสดีเหมียว~</div>
-        <p class="center">ฉันชื่อ <b>เหมียวสมาธิ</b> จะช่วยจัดตารางออกกำลังกายกับอาหารให้เอง<br>ขอถามสั้นๆ 5 เรื่อง ใช้เวลาราว 1 นาที</p>
+        <p class="center">ฉันชื่อ <b>เหมียวสมาธิ</b> จะช่วยจำ ช่วยคิด และปรับแผนให้เอง<br>ขอถามสั้นๆ 5 เรื่อง ใช้เวลาราว 1 นาที</p>
+        <label class="name-field"><span class="small muted">อยากให้แมวเรียกว่าอะไรดี (ไม่ใส่ก็ได้)</span>
+          <input type="text" data-input="name" value="${esc(d.name ?? '')}" maxlength="20" autocomplete="nickname" placeholder="ชื่อเล่น"></label>
         <div class="sheet-foot">
           <button class="btn primary big block" data-act="obNext">เริ่มเลย</button>
           <button class="btn ghost block" data-act="obSkip">ข้ามไปก่อน ใช้ค่าเริ่มต้น</button>
@@ -665,7 +699,7 @@ function renderOnboard(s) {
       return `${cat('bright', 170)}
         <div class="question">เรียบร้อยเหมียว!</div>
         <p class="center">แมวจัดตารางให้แล้ว สัปดาห์นี้ออกกำลังกาย <b>${n} วัน</b><br>สลับหนัก-เบา-พัก พร้อมเมนูอาหารทุกมื้อ</p>
-        <p class="center muted small">พลาดวันไหนก็ไม่ต้องห่วง แมวจะย้ายตารางให้เอง</p>
+        <p class="center muted small">วันไหนไม่สะดวกก็ไม่เป็นไร แมวจะย้ายตารางให้เอง</p>
         <div class="sheet-foot"><button class="btn primary big block" data-act="back">ไปดูวันนี้กัน</button></div>`;
     }
   }
@@ -681,8 +715,10 @@ const CHECKIN_STEPS = [
 ];
 
 function openCheckin() {
-  const existing = getDay(todayKey()).checkin;
-  pushSheet({ type: 'checkin', step: 0, answers: existing ? structuredClone(existing.answers) : { soreness: {} } });
+  const day = getDay(todayKey());
+  const existing = day.checkin;
+  // Anything already mentioned ("ปวดหลัง" in the inbox) is pre-filled.
+  pushSheet({ type: 'checkin', step: 0, answers: existing ? structuredClone(existing.answers) : { soreness: { ...(day.pendingSore ?? {}) } } });
 }
 
 function finishCheckin(s) {
@@ -951,7 +987,7 @@ function renderExercise(sheet) {
       <div class="steps-h">2. ท่าเริ่มต้น</div>${ol(machine.start)}
       <div class="steps-h">3. การเคลื่อนไหว</div>${ol(machine.move)}
       <div class="steps-h">4. การหายใจ</div><p>${machine.breath}</p></div>
-    <div class="card"><h2>ข้อผิดพลาดที่พบบ่อย</h2>
+    <div class="card"><h2>จุดที่มักพลาดกันบ่อย</h2>
       ${machine.mistakes.map((x) => `<div class="mistake"><span>${x.wrong}</span><span>${x.fix}</span></div>`).join('')}</div>`
     : `<div class="card"><h2>วิธีทำ</h2>${info.equip ? `<p class="muted small">อุปกรณ์: ${info.equip}</p>` : ''}${ol(info.how)}</div>`;
 
@@ -1007,33 +1043,61 @@ function saveMachine(form, { quiet = false } = {}) {
 }
 
 // ---------- views ----------
-function renderToday() {
-  const t = computeToday();
-  const timeline = dayTimeline({ profile: t.p, session: t.session });
-  const { meals } = mealsFor(t.key, t.session);
+// ---------- today ----------
+// Every item of a day in one list: health (check-in, meals, exercise, a short
+// break, bedtime) and the user's own things (work, appointments, errands,
+// bills). Times the cat suggested ("จัดวันนี้ให้ฉัน") override the defaults.
+function dayItems(t) {
+  const timeline = [...dayTimeline({ profile: t.p, session: t.session }), { id: 'relax', time: '15:30' }];
+  if (t.day.special?.accepted && t.day.special.kind !== 'menu') timeline.push({ id: 'special', time: '17:00' });
   const isDone = (it) => {
     if (it.id === 'checkin') return !!t.day.checkin;
     if (it.slot) return !!t.day.meals[it.slot];
     if (it.id === 'workout') return t.done;
     return !!t.day.ticks[it.id];
   };
-  // Health items and the user's own to-dos, appointments and bills in one list:
-  // untimed life items first, then everything by time.
-  const lifeItems = life.todayItems(t.key);
-  const timed = [...timeline.map((it) => ({ ...it, done: isDone(it) })), ...lifeItems.filter((i) => i.time)]
-    .sort((a, b) => a.time.localeCompare(b.time));
-  const items = [...lifeItems.filter((i) => !i.time), ...timed];
+  const times = t.day.arranged?.times ?? {};
+  const health = timeline.map((it) => ({ ...it, planned: it.time, time: times[it.id] ?? it.time, moved: !!times[it.id] && times[it.id] !== it.time, done: isDone(it) }));
+  const lifeItems = life.todayItems(t.key).map((i) => (times[i.id] ? { ...i, planned: i.time, time: times[i.id], moved: true } : { ...i, planned: i.time }));
+  const timed = [...health, ...lifeItems.filter((i) => i.time)].sort((a, b) => a.time.localeCompare(b.time));
+  return [...lifeItems.filter((i) => !i.time), ...timed];
+}
+
+// Plain-language title of any item (night summary, arrange sheet).
+function itemTitle(it, t, meals) {
+  if (it.life === 'event') return it.ev.title;
+  if (it.life === 'bill') return `จ่าย${it.bill.title}`;
+  if (it.id === 'checkin') return 'เช็กอินตอนเช้า';
+  if (it.slot) return MEAL_SLOTS[it.slot].label + (meals?.[it.slot] ? ` (${meals[it.slot].name})` : '');
+  if (it.id === 'workout') return sessionTitle(t.session);
+  if (it.id === 'relax') return ROUTINES.breathe.name;
+  if (it.id === 'rest') return 'วันพัก';
+  return 'วางมือถือ เตรียมนอน';
+}
+
+const candidatesForDinner = (t) => candidates(t.p.food, 'd');
+
+const timeGreeting = (hour) => (hour < 5 ? 'ดึกแล้วนะ' : hour < 11 ? 'อรุณสวัสดิ์' : hour < 16 ? 'สวัสดีตอนบ่าย' : hour < 20 ? 'สวัสดีตอนเย็น' : 'ใกล้เวลาพักแล้ว');
+const isNight = (hour) => hour >= 20 || hour < 4;
+const learning = () => state.settings.learn !== false;
+
+function renderToday() {
+  const t = computeToday();
+  const { meals } = mealsFor(t.key, t.session);
+  const items = dayItems(t);
   const done = items.filter((i) => i.done).length;
   const nowIdx = items.findIndex((i) => !i.done);
-  const mood = t.day.easy ? 'sleepy' : t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal';
   const hour = new Date().getHours();
-  const habit = findHabit({ days: state.days, profile: t.p, today: t.key, hour });
-  const msg = greeting({
+  const night = isNight(hour);
+  const mood = t.day.easy || night ? 'sleepy' : t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal';
+  const habit = learning() ? findHabit({ days: state.days, profile: t.p, today: t.key, hour }) : null;
+  const msg = night ? pick(NIGHT_LINES, t.key) : greeting({
     key: t.key, mood, checkedIn: !!t.day.checkin, done, total: items.length,
     isRestDay: !t.session, missed: t.plan.missed, hour, easy: t.day.easy, habit, holy: t.holy,
   });
   const pers = personal(t);
   const goal = waterGoalToday(t);
+  const name = state.profile?.name?.trim();
 
   // Everything done: ring the blessing once (only after a tap, never on page load).
   if (items.length && done === items.length && !t.day.celebrated && ui.userActed) {
@@ -1043,26 +1107,47 @@ function renderToday() {
   }
   const glasses = Array.from({ length: Math.max(goal, t.day.water) }, (_, i) =>
     `<i class="${i < t.day.water ? 'full' : ''}"></i>`).join('');
-  const hasGym = t.p.activities.includes('gym');
+  const pct = items.length ? Math.round((done / items.length) * 100) : 0;
+  const arranged = t.day.arranged;
 
   $('#view-today').innerHTML = `
     <div class="hero">
-      ${mascot(mood, { size: 128 })}
+      ${mascot(mood, { size: 112 })}
       <div class="grow">
+        <h1 class="hello">${timeGreeting(hour)}${name ? ` ${esc(name)}` : ''}</h1>
         <div class="bubble">${msg}</div>
         <div class="hero-meta">
           <span class="muted small">${thaiDate(t.key)}</span>
-          ${t.day.checkin ? `<span class="lvl-chip">ความพร้อม ${t.day.checkin.score}</span>` : ''}
-          <span class="badge">ทำแล้ว ${done}/${items.length}</span>
+          ${t.travel ? `<button class="chip-mini" data-act="travelToggle">${icon('bag', { size: 14 })}โหมดเดินทาง</button>` : ''}
+          ${t.day.weather ? `<span class="chip-mini">${icon(WEATHER[t.day.weather].icon, { size: 14 })}${WEATHER[t.day.weather].label}</span>` : ''}
         </div>
       </div>
     </div>
+
+    <div class="progress-line" role="status">
+      <span class="count"><b>${done}/${items.length}</b> เสร็จแล้ว</span>
+      <div class="pbar" aria-hidden="true"><div style="width:${pct}%"></div></div>
+    </div>
+
+    <div class="main-actions">
+      <button class="btn primary" data-act="arrange">${icon('shuffle', { size: 18 })}จัดวันนี้ให้ฉัน</button>
+      ${t.day.easy ? '<button class="btn soft" data-act="easyOff">กลับเป็นวันปกติ</button>'
+    : `<button class="btn soft" data-act="easyOn">${icon('cloud', { size: 18 })}วันนี้ไม่ไหว</button>`}
+    </div>
+    ${arranged ? `<button class="arranged-note" data-act="arrange">${icon('check', { size: 16 })}แมวจัดวันนี้ให้แล้ว ${arranged.changes.length ? `· ปรับ ${arranged.changes.length} อย่าง` : ''} · ดูเหตุผล</button>` : ''}
+
+    ${inbox.bar()}
+    ${easyCard(t, pers, goal)}
+    ${suggestionCard(t, { hour, night, items, meals })}
+
+    <ol class="timeline">${items.map((it, i) => (it.life ? life.timelineItem(it, i === nowIdx) : timelineItem(it, t, meals, i === nowIdx))).join('')}</ol>
+
     <div class="card quick">
     <div class="water">
       <span class="label-ic">${icon('drop')}</span>
       <span class="grow">
         <span class="glasses" aria-hidden="true">${glasses}</span>
-        <span class="small muted">${t.day.water}/${goal} แก้ว${pers?.water.extra ? ` · วันนี้ออกกำลังกาย +${pers.water.extra} มล.` : ''}</span>
+        <span class="small muted">${t.day.water}/${goal} แก้ว${pers?.water.extra ? ` · วันนี้ออกกำลังกาย +${pers.water.extra} มล.` : ''}${t.day.weather === 'hot' ? ' · อากาศร้อน +2 แก้ว' : ''}</span>
       </span>
       <button class="icon-btn" data-act="water" data-n="-1" aria-label="ลบ 1 แก้ว" ${t.day.water ? '' : 'disabled'}>−</button>
       <button class="btn primary" data-act="water" data-n="1">+1 แก้ว</button>
@@ -1070,16 +1155,10 @@ function renderToday() {
     ${stepsRow(t, pers)}
     ${moodRow(t)}
     </div>
-    <div class="tools">
+    <div class="tools two">
       <button class="tool" data-act="leaveOpen">${icon('door')}<span>ออกจากบ้าน</span></button>
-      <button class="tool" data-act="eventNew" data-kind="personal">${icon('plus')}<span>เพิ่มงาน/นัด</span></button>
       <button class="tool" data-act="expQuick">${icon('wallet')}<span>จดรายจ่าย</span></button>
-    </div>
-    ${easyCard(t, pers, goal)}
-    ${holyCard(t)}
-    ${todayCards(t)}
-    ${hasGym && !t.done && !t.day.easy ? `<div class="gym-cta"><button class="btn lotus big block" data-act="goGym">${icon('dumbbell', { size: 20 })} วันนี้ไปยิม</button></div>` : ''}
-    <ol class="timeline">${items.map((it, i) => (it.life ? life.timelineItem(it, i === nowIdx) : timelineItem(it, t, meals, i === nowIdx))).join('')}</ol>`;
+    </div>`;
 }
 
 const MOODS = [
@@ -1095,22 +1174,74 @@ function moodRow(t) {
   </div>`;
 }
 
-// "วันนี้ไม่ไหว": one button that softens every target for today only.
+// "วันนี้ไม่ไหว": everything for today, softer. Only today; tomorrow is normal again.
 function easyCard(t, pers, waterGoalNow) {
-  if (!t.day.easy) {
-    return `<button class="btn ghost block easy-btn" data-act="easyOn">${icon('cloud', { size: 18 })} วันนี้ไม่ไหว</button>`;
-  }
+  if (!t.day.easy) return '';
+  const moved = (t.day.postponed ?? []).map((id) => state.events.find((e) => e.id === id)).filter(Boolean);
   return `<div class="card easy-card">
-    <div class="head">โหมดวันนี้ไม่ไหว</div>
-    <p class="small">ลดเป้าให้หมดแล้ว: น้ำ ${waterGoalNow} แก้ว · เดิน ${stepGoalToday(t, pers).toLocaleString('th-TH')} ก้าว ·
-      ${t.session && !t.done ? 'ออกกำลังกาย → ยืดเส้นเบาๆ (ไม่ทำก็ได้)' : 'ไม่ต้องออกกำลังกาย'} · อาหารเบาๆ</p>
-    <p class="small muted">โปรแกรมที่พลาดวันนี้ แมวย้ายไปวันอื่นให้เอง · พรุ่งนี้กลับเป็นปกติเอง</p>
-    <button class="btn ghost sm" data-act="easyOff">กลับเป็นวันปกติ</button>
+    <div class="head">วันนี้ไม่ต้องเอา 100% ก็ได้</div>
+    <ul class="soft-list small">
+      <li>น้ำ ${waterGoalNow} แก้ว · เดิน ${stepGoalToday(t, pers).toLocaleString('th-TH')} ก้าว</li>
+      <li>${t.session && !t.done ? 'ออกกำลังกาย → ยืดเส้น 10 นาที (ไม่ทำก็ได้)' : 'ไม่ต้องออกกำลังกาย'} · อาหารเบาๆ</li>
+      ${moved.length ? `<li>เลื่อนไปพรุ่งนี้: ${moved.map((e) => esc(e.title)).join(', ')}</li>` : ''}
+    </ul>
+    <p class="small muted">โปรแกรมที่พักวันนี้ แมวย้ายไปวันอื่นให้เอง · นัดหมายกับงานด่วนยังอยู่ที่เดิม</p>
+  </div>`;
+}
+
+// At most one suggestion at a time, most useful first, so Today stays calm.
+function suggestionCard(t, { hour, night, items, meals }) {
+  if (night) return nightCard(t, items, meals);
+  if (t.holy) return holyCard(t);
+  if (t.day.easy) return '';
+  const patterns = learning()
+    ? findPatterns({ days: state.days, profile: t.p, today: t.key, todayCheckin: t.day.checkin })
+      .filter((p) => !state.insightSeen[p.id] || daysSince(state.insightSeen[p.id], t.key) >= 14)
+    : [];
+  const actionable = patterns.find((p) => p.action && !t.day.lighten);
+  if (actionable) return patternCard(actionable);
+  const sp = specialToday(t);
+  if (sp) return specialCard(sp);
+  const lastMonth = monthOf(addDays(`${monthOf(t.key)}-01`, -1));
+  if (Number(t.key.slice(8)) <= 3 && state.wrappedSeen !== lastMonth && Object.keys(state.days).some((k) => k.startsWith(lastMonth))) {
+    return `<button class="card story-teaser" data-act="openWrapped" data-ym="${lastMonth}">
+      <span class="card-ic">${icon('book', { size: 20 })}</span><span class="grow"><span class="head">สรุปเดือนที่แล้วพร้อมแล้ว</span><br><span class="small muted">เรื่องเล่าสั้นๆ ของเดือนที่ผ่านมา</span></span><span class="chev">›</span></button>`;
+  }
+  const ws = weekStart(t.key);
+  if (daysSince(ws, t.key) <= 1 && state.storySeen !== ws) {
+    const prevWs = addDays(ws, -7);
+    if (Array.from({ length: 7 }, (_, i) => addDays(prevWs, i)).some((k) => state.days[k])) {
+      return `<button class="card story-teaser" data-act="openStory">
+        <span class="card-ic">${icon('book', { size: 20 })}</span><span class="head grow">เรื่องเล่าสัปดาห์ที่แล้วพร้อมแล้ว</span><span class="chev">›</span></button>`;
+    }
+  }
+  if (patterns[0]) return patternCard(patterns[0]);
+  for (const r of state.rewards.filter((x) => !x.claimedAt)) {
+    const pr = rewardProgress(r, state.days, t.key);
+    if (!pr.near && !pr.done) continue;
+    const m = REWARD_METRICS[r.metric];
+    return `<div class="card reward-card">
+      <div class="head row"><span class="card-ic">${icon('gift', { size: 20 })}</span>${pr.done ? `ครบแล้ว! ได้เวลา${esc(r.title)}` : `อีก ${pr.left} ${m.unit} จะได้${esc(r.title)}`}</div>
+      ${progressBar(pr.pct, `${m.label} ${pr.count}/${pr.target} ${m.unit}`)}
+      ${pr.done ? `<button class="btn primary sm" data-act="claimReward" data-id="${r.id}">รับรางวัลแล้ว</button>` : ''}
+    </div>`;
+  }
+  return '';
+}
+
+function patternCard(p) {
+  return `<div class="card insight">
+    <div class="small muted row"><span class="card-ic">${icon('eye', { size: 18 })}</span>ข้อสังเกตจากแมว (ไม่ใช่คำวินิจฉัย)</div>
+    <p class="head">${p.text}</p>
+    <p class="small">${p.tip}</p>
+    <div class="row wrap">
+      ${p.action ? `<button class="btn primary sm" data-act="patternAction" data-id="${p.id}" data-action="${p.action.id}">${p.action.label}</button>` : ''}
+      <button class="btn ghost sm" data-act="insightSeen" data-id="${p.id}">${p.action ? 'ไม่เป็นไร' : 'ขอบใจนะ'}</button>
+    </div>
   </div>`;
 }
 
 function holyCard(t) {
-  if (!t.holy) return '';
   const swapped = t.session?.adjusted === 'holy';
   return `<div class="card holy-card">
     <div class="row"><span class="holy-mark" aria-hidden="true">${icon('lotus')}</span>
@@ -1122,42 +1253,176 @@ function holyCard(t) {
   </div>`;
 }
 
-// Short cards that only appear when there's something worth saying.
-function todayCards(t) {
-  const cards = [];
-  // A pattern the cat noticed, until the user says "got it" (then quiet for 14 days).
-  const pattern = findPatterns({ days: state.days, profile: t.p, today: t.key })
-    .find((p) => !state.insightSeen[p.id] || daysSince(state.insightSeen[p.id], t.key) >= 14);
-  if (pattern) {
-    cards.push(`<div class="card insight">
-      <div class="small muted row"><span class="card-ic">${icon('eye', { size: 18 })}</span>แมวสังเกตเห็นว่า…</div>
-      <p class="head">${pattern.text}</p>
-      <p class="small">${pattern.tip}</p>
-      <button class="btn ghost sm" data-act="insightSeen" data-id="${pattern.id}">ขอบใจนะ</button>
-    </div>`);
+// ---------- special day: something new, now and then ----------
+function specialToday(t) {
+  if (t.day.special === 'no') return null;
+  if (t.day.special) return t.day.special.accepted ? null : t.day.special;
+  const recentIds = new Set();
+  for (let i = 0; i < 30; i++) {
+    const d = state.days[addDays(t.key, -i)];
+    for (const m of Object.values(d?.meals ?? {})) if (m.menuId) recentIds.add(m.menuId);
   }
-  // Rewards close to (or at) their target.
-  for (const r of state.rewards.filter((x) => !x.claimedAt)) {
-    const pr = rewardProgress(r, state.days, t.key);
-    if (!pr.near && !pr.done) continue;
-    const m = REWARD_METRICS[r.metric];
-    cards.push(`<div class="card reward-card">
-      <div class="head row"><span class="card-ic">${icon('gift', { size: 20 })}</span>${pr.done ? `ครบแล้ว! ได้เวลา${esc(r.title)}` : `อีก ${pr.left} ${m.unit} จะได้${esc(r.title)}`}</div>
-      ${progressBar(pr.pct, `${m.label} ${pr.count}/${pr.target} ${m.unit}`)}
-      ${pr.done ? `<button class="btn primary sm" data-act="claimReward" data-id="${r.id}">รับรางวัลแล้ว</button>` : ''}
-    </div>`);
-  }
-  // Early in the week: last week's story is ready.
-  const ws = weekStart(t.key);
-  if (daysSince(ws, t.key) <= 1 && state.storySeen !== ws) {
-    const prevWs = addDays(ws, -7);
-    const has = Array.from({ length: 7 }, (_, i) => addDays(prevWs, i)).some((k) => state.days[k]);
-    if (has) {
-      cards.push(`<button class="card story-teaser" data-act="openStory">
-        <span class="card-ic">${icon('book', { size: 20 })}</span><span class="head grow">เรื่องเล่าสัปดาห์ที่แล้วพร้อมแล้ว</span><span class="chev">›</span></button>`);
+  const menus = candidatesForDinner(t).filter((m) => !recentIds.has(m.id)).map((m) => ({ id: m.id, name: m.name }));
+  const tried = new Set(Object.values(state.days).flatMap((d) => Object.keys(d.sets ?? {})));
+  const exercises = Object.entries(HOME_EXERCISES).filter(([id]) => !tried.has(id)).map(([id, x]) => ({ id, name: x.name }));
+  return specialDay({
+    key: t.key, lastSpecial: state.lastSpecial ?? null, easy: t.day.easy, level: t.day.checkin?.level, holy: !!t.holy,
+    options: { exercises, menus },
+  });
+}
+
+function specialCard(sp) {
+  return `<div class="card special-card">
+    <div class="small muted row"><span class="card-ic">${icon('sparkle', { size: 18 })}</span>วันพิเศษ · ลองอะไรใหม่ๆ ดูไหม</div>
+    <p class="head">${esc(sp.title)}</p>
+    <p class="small">${esc(sp.text)}</p>
+    <div class="row wrap">
+      <button class="btn primary sm" data-act="specialYes">ลองดู</button>
+      <button class="btn ghost sm" data-act="specialNo">ไว้วันหลัง</button>
+    </div>
+  </div>`;
+}
+
+// ---------- night: a short look back and ahead ----------
+function nightCard(t, items, meals) {
+  const doneItems = items.filter((i) => i.done);
+  const leftTasks = items.filter((i) => !i.done && i.life === 'event' && i.ev.kind !== 'appt');
+  const workoutLeft = t.session && !t.done && !t.day.easy;
+  const tomorrow = addDays(t.key, 1);
+  const ahead = [
+    ...state.events.filter((e) => e.date === tomorrow && !e.done).sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''))
+      .map((e) => `${e.time ? `${e.time} ` : ''}${esc(e.title)}`),
+    ...state.bills.filter((b) => { const c = billCycle(b, tomorrow); return !c.paid && (c.status === 'today' || c.status === 'overdue'); })
+      .map((b) => `จ่าย${esc(b.title)}`),
+  ];
+  const tw = t.plan.week.find((d) => d.key === tomorrow);
+  if (tw?.session && !tw.done) ahead.push(`ออกกำลังกาย: ${sessionTitle(tw.session)}`);
+  return `<div class="card night-card">
+    <div class="small muted row"><span class="card-ic">${icon('moon', { size: 18 })}</span>สรุปก่อนนอน</div>
+    <h3 class="flush-top">วันนี้ทำไปแล้ว ${doneItems.length} อย่าง</h3>
+    ${doneItems.length ? `<ul class="soft-list small">${doneItems.slice(0, 5).map((i) => `<li>${esc(itemTitle(i, t, meals))}</li>`).join('')}${doneItems.length > 5 ? `<li class="muted">และอีก ${doneItems.length - 5} อย่าง</li>` : ''}</ul>`
+    : '<p class="small">วันนี้ได้พักเต็มที่ ก็นับว่าดูแลตัวเองแล้ว</p>'}
+    ${leftTasks.length || workoutLeft ? `<p class="small">ที่ยังไม่ได้ทำ ไม่เป็นไร เดี๋ยวเราจัดใหม่${workoutLeft ? ' · ออกกำลังกาย แมวย้ายไปวันถัดไปให้เอง' : ''}</p>
+      ${leftTasks.length ? `<button class="btn soft sm" data-act="nightMove">ย้าย ${leftTasks.length} อย่างไปพรุ่งนี้</button>` : ''}` : ''}
+    <h3>พรุ่งนี้มีอะไรรอ</h3>
+    ${ahead.length ? `<ul class="soft-list small">${ahead.slice(0, 5).map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p class="small muted">พรุ่งนี้ยังโล่ง นอนให้เต็มอิ่มได้เลย</p>'}
+  </div>`;
+}
+
+// ---------- "จัดวันนี้ให้ฉัน" ----------
+// The day as the arranger sees it: original times (not a previous arrangement),
+// what can move, and how the user slept and feels.
+function arrangeInputs(t) {
+  const items = dayItems({ ...t, day: { ...t.day, arranged: null } });
+  const d = new Date();
+  const mapped = items.map((i) => {
+    if (i.life === 'event') {
+      const e = i.ev;
+      if (!e.time) return e.kind === 'appt' ? null : { id: i.id, kind: 'task', label: e.title, time: null, dur: 30, work: e.kind === 'work', done: i.done };
+      return { id: i.id, kind: 'event', label: e.title, time: e.time, dur: EVENT_MINUTES[e.kind] ?? 30, fixed: true, buffer: e.kind === 'appt', done: i.done };
     }
+    if (i.life) return null; // bills have no time of day
+    const kind = i.id === 'checkin' ? 'checkin' : i.slot ? 'meal' : i.id === 'workout' ? 'workout'
+      : i.id === 'relax' ? 'relax' : i.id === 'winddown' ? 'winddown' : 'other';
+    return {
+      id: i.id, kind, label: itemTitle(i, t), time: i.time, done: i.done,
+      dur: kind === 'workout' ? WORKOUT_MINUTES[t.session?.activity] ?? 45 : kind === 'relax' ? 10 : 30,
+      outdoor: kind === 'workout' && isOutdoor(t.session), adjusted: kind === 'workout' ? t.session?.adjusted : null,
+    };
+  }).filter(Boolean);
+  const c = t.day.checkin;
+  return {
+    items: mapped,
+    ctx: {
+      now: d.getHours() * 60 + d.getMinutes(), sleepHours: sleepHoursOf(c), energy: c?.answers?.energy ?? null,
+      stress: c?.answers?.stress ?? null, level: c?.level ?? null, weather: t.day.weather ?? null, travel: t.travel, hasCheckin: !!c,
+    },
+  };
+}
+
+function renderArrange() {
+  const t = computeToday();
+  const { items, ctx } = arrangeInputs(t);
+  const r = arrangeDay(items, ctx);
+  const adj = t.session?.adjusted;
+  const sessionNote = adj && ADJUST_TEXT[adj] && ['rain', 'hot', 'travel', 'pattern', 'light', 'rest', 'sore', 'swap', 'sore-light'].includes(adj)
+    ? `<li>${ADJUST_TEXT[adj]}</li>` : '';
+  const w = t.day.weather ?? 'none';
+  const chip = (v, label, ic) => `<button class="chip" data-act="arrWeather" data-v="${v}" aria-pressed="${w === v}">${ic ? icon(ic, { size: 18 }) : ''}${label}</button>`;
+  return `${sheetTop('จัดวันนี้ให้ฉัน')}
+    <div class="sheet-mascot">${mascot(t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal', { size: 84 })}</div>
+    <div class="question">แมวคิดให้แล้ว</div>
+    <p class="center small muted">ดูจากตารางวันนี้ งาน นัดหมาย ช่วงที่ว่าง การนอน พลังงาน และเป้าหมายของเธอ</p>
+    <div class="card">
+      <div class="small muted">วันนี้เป็นยังไงบ้าง (แตะบอกได้ ไม่บอกก็ได้)</div>
+      <div class="chips gap-top">${chip('none', 'อากาศปกติ')}${chip('rain', 'ฝนตก', 'cloud')}${chip('hot', 'ร้อนจัด', 'sun')}
+        <button class="chip" data-act="travelToggle" aria-pressed="${t.travel}">${icon('bag', { size: 18 })}กำลังเดินทาง</button></div>
+    </div>
+    <div class="card">
+      <h2>สิ่งที่แมวจะปรับ</h2>
+      ${r.changes.map((c) => `<div class="change">
+        <div class="row between"><b>${esc(c.label)}</b><span class="nowrap">${c.from ?? 'ยังไม่มีเวลา'} → <b>${c.to}</b></span></div>
+        <p class="small muted">${esc(c.reason)}</p></div>`).join('')}
+      <ul class="soft-list small">${sessionNote}${r.notes.map((n) => `<li>${n}</li>`).join('')}</ul>
+      ${!t.day.checkin ? '<button class="btn ghost sm" data-act="checkin">เช็กอินก่อน (1 นาที)</button>' : ''}
+    </div>
+    <div class="sheet-foot">
+      <button class="btn primary big block" data-act="arrApply">ใช้แผนนี้</button>
+      ${t.day.arranged ? '<button class="btn ghost block" data-act="arrReset">กลับเป็นแผนเดิม</button>'
+    : '<button class="btn ghost block" data-act="arrCancel">ไม่เป็นไร ใช้แบบเดิม</button>'}
+    </div>`;
+}
+
+// ---------- monthly wrapped ----------
+const monthName = (ym) => {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+};
+
+function renderWrapped(s) {
+  const st = monthlyStory({ days: state.days, ym: s.ym, weights: state.weights });
+  return `${sheetTop('สรุปเดือน')}
+    <div class="sheet-mascot">${mascot('bright', { size: 110 })}</div>
+    <div class="question">${monthName(s.ym)}</div>
+    <div class="card story-text">${st.lines.map((l) => `<p>${l}</p>`).join('')}</div>
+    ${st.highlights.length ? `<div class="card">${st.highlights.map((h) => `<p class="row">${icon('sparkle', { size: 18 })}<span>${h}</span></p>`).join('')}</div>` : ''}
+    <p class="small muted center">ความก้าวหน้าสำคัญกว่าความสมบูรณ์แบบเสมอ</p>
+    <div class="sheet-foot">
+      <button class="btn soft big block" data-act="share" data-kind="month" data-ym="${s.ym}">${icon('heart', { size: 18 })}แชร์ให้คนสนิท</button>
+      <button class="btn ghost block" data-act="back">ปิด</button>
+    </div>`;
+}
+
+// Private sharing: the user picks the person in their own chat app. Nothing is posted anywhere.
+async function share(text) {
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'ความคืบหน้าของฉัน', text });
+      return;
+    }
+  } catch (e) {
+    if (e?.name === 'AbortError') return;
   }
-  return cards.join('');
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('คัดลอกแล้ว วางในแชตให้คนสนิทได้เลย');
+  } catch {
+    toast('แชร์จากเครื่องนี้ไม่ได้');
+  }
+}
+
+function shareText(kind, d) {
+  if (kind === 'month') {
+    const st = monthlyStory({ days: state.days, ym: d.ym, weights: state.weights });
+    return `สรุปเดือน${monthName(d.ym)} ของฉัน\n${[...st.lines, ...st.highlights].map((l) => `· ${l}`).join('\n')}`;
+  }
+  const t = computeToday();
+  const ws = weekStart(t.key);
+  const wk = ui.storyWeek === 'prev' ? addDays(ws, -7) : ws;
+  const keys = Array.from({ length: 7 }, (_, i) => addDays(wk, i));
+  const prevKeys = keys.map((k) => addDays(k, -7));
+  const st = weeklyStory({ days: state.days, weekKeys: keys, prevKeys, profile: t.p, weights: state.weights, until: t.key });
+  return `สัปดาห์นี้ของฉัน\n${st.lines.map((l) => `· ${l}`).join('\n')}`;
 }
 
 function progressBar(pct, label) {
@@ -1227,6 +1492,19 @@ function timelineItem(it, t, meals, isNow) {
       ? '<button class="btn lotus" data-act="goGym">วันนี้ไปยิม</button>'
       : '<button class="btn primary" data-act="startSession">เริ่มเลย</button>';
     tickBtn = tick('workoutTick');
+  } else if (it.id === 'relax') {
+    emoji = icon('leaf');
+    title = ROUTINES.breathe.name;
+    sub = 'ลุกจากจอ ยืดตัว หายใจช้าๆ ดื่มน้ำสักอึก';
+    actions = '<button class="btn soft" data-act="openExercise" data-id="breathe">ดูวิธี</button>';
+    tickBtn = tick('tick', 'data-id="relax"');
+  } else if (it.id === 'special') {
+    const sp = t.day.special;
+    emoji = icon('sparkle');
+    title = esc(sp.title);
+    sub = esc(sp.text);
+    if (sp.kind === 'exercise') actions = `<button class="btn soft" data-act="openExercise" data-id="${sp.ref}">ดูวิธีเล่น</button>`;
+    tickBtn = tick('tick', 'data-id="special"');
   } else if (it.id === 'rest') {
     emoji = icon('moon');
     title = 'วันพัก';
@@ -1240,6 +1518,7 @@ function timelineItem(it, t, meals, isNow) {
     tickBtn = tick('tick', 'data-id="winddown"');
   }
 
+  if (it.moved && !it.done) sub += ` <span class="badge">แมวย้ายจาก ${it.planned}</span>`;
   return `<li class="${cls}">
     <span class="tl-time">${it.time}</span><span class="tl-dot"></span>
     <div class="tl-card">
@@ -1253,64 +1532,103 @@ function timelineItem(it, t, meals, isNow) {
     </div></li>`;
 }
 
-function renderWeek() {
-  const t = computeToday();
-  const { week, missed, dropped } = t.plan;
-  const holyMap = state.settings.holyDays ? holyDays(week[0].key, week[6].key) : {};
-  const note = missed > 0
-    ? `พลาดไป ${missed} วัน ไม่เป็นไรเลย แมวย้ายตารางให้แล้ว${dropped ? ` (ตัดวันเบาออก ${dropped} วัน พักเยอะหน่อยก็ได้บุญ)` : ''}`
-    : 'สลับวันหนัก วันเบา วันพัก และไม่เล่นกล้ามเนื้อเดิมติดกัน';
-  $('#view-week').innerHTML = `
-    <div class="view-head"><h1>ตารางสัปดาห์นี้</h1></div>
-    <div class="hero">${mascot('normal', { size: 84 })}<div class="bubble grow small">${note}</div></div>
-    ${week.map((d) => {
-      const s = d.isToday ? t.session : d.session;
-      const date = parseKey(d.key);
-      let title;
-      if (d.done) title = `${sessionEmoji(s)} ${esc(getDay(d.key).workout?.title ?? sessionTitle(s))}`;
-      else if (s) title = `${sessionEmoji(s)} ${sessionTitle(s)}`;
-      else title = d.isPast && d.available ? 'พักไป' : 'วันพัก';
-      const holy = holyMap[d.key];
-      const chips = `${s ? `${intensityChip(s)}${d.moved ? ' <span class="badge dusk">ย้ายมา</span>' : ''}` : ''}${holy ? ` <span class="badge lotus">วันพระ</span>` : ''}`;
-      const open = ui.weekOpen === d.key && s;
-      const detail = open ? `<span class="wd-list">${sessionItems(s).map((i) => infoName(exerciseInfo(i.id))).join(' → ')}</span>` : '';
-      return `<button class="week-day${d.isToday ? ' today' : ''}${d.isPast ? ' past' : ''}" data-act="weekOpen" data-key="${d.key}" aria-expanded="${!!open}">
-        <span class="wd-date">${WEEKDAYS[date.getDay()]}<b>${date.getDate()}</b></span>
-        <span><span class="wd-title">${title}</span><br>${chips}${d.isToday ? ' <span class="badge gold">วันนี้</span>' : ''}</span>
-        <span class="head">${d.done ? '' : ''}</span>${detail}
-      </button>`;
-    }).join('')}
-    <button class="btn soft block" data-act="editProfile">เปลี่ยนวันว่าง เป้าหมาย หรือกิจกรรม</button>
-    ${monthCalendar(t)}`;
+// ---------- life calendar ----------
+// One calendar for everything, kept quiet: at most three small marks per day
+// (appointment, bill, exercise). Tapping a day shows that day as a short list.
+function workoutOn(key, t) {
+  const done = state.days[key]?.workout;
+  if (done?.done) return { title: done.title ?? sessionTitle(done), done: true };
+  if (key < t.key) return null;
+  const inWeek = t.plan.week.find((d) => d.key === key);
+  if (inWeek) {
+    const s = inWeek.isToday ? t.session : inWeek.session;
+    return s ? { title: sessionTitle(s), done: false } : null;
+  }
+  // Later weeks: the usual plan, as a rough guide.
+  const ws = weekStart(key);
+  const s = planWeek({ profile: t.p, today: ws, days: {} }).week.find((d) => d.key === key)?.session;
+  return s ? { title: sessionTitle(s), done: false, rough: true } : null;
 }
 
-// This month at a glance: days with a workout, and วันพระ.
-function monthCalendar(t) {
-  const today = parseKey(t.key);
-  const y = today.getFullYear();
-  const m = today.getMonth();
-  const first = dateKey(new Date(y, m, 1));
-  const last = dateKey(new Date(y, m + 1, 0));
+function billsOn(key) {
+  return state.bills.filter((b) => {
+    if (Object.values(b.paid ?? {}).includes(key)) return true;
+    const ym = key.slice(0, 7);
+    return billDueOn(b, ym) === key && (b.createdOn ?? key) <= key;
+  });
+}
+
+function renderWeek() {
+  const t = computeToday();
+  const ym = ui.calMonth ?? monthOf(t.key);
+  const [y, m] = ym.split('-').map(Number);
+  const first = `${ym}-01`;
+  const n = new Date(y, m, 0).getDate();
+  const last = `${ym}-${String(n).padStart(2, '0')}`;
   const holy = state.settings.holyDays ? holyDays(first, last) : {};
-  const lead = (new Date(y, m, 1).getDay() + 6) % 7; // Monday first
-  const n = new Date(y, m + 1, 0).getDate();
+  const lead = (new Date(y, m - 1, 1).getDay() + 6) % 7; // Monday first
+  const sel = ui.calDay && ui.calDay.startsWith(ym) ? ui.calDay : (t.key.startsWith(ym) ? t.key : first);
   const cells = [];
   for (let i = 0; i < lead; i++) cells.push('<span></span>');
   for (let d = 1; d <= n; d++) {
-    const key = dateKey(new Date(y, m, d));
-    const h = holy[key];
-    const worked = state.days[key]?.workout?.done;
-    const label = [`${d}`, worked ? 'ออกกำลังกายแล้ว' : '', h ? `วันพระ ${h.label}` : ''].filter(Boolean).join(' ');
-    cells.push(`<span class="cal-day${key === t.key ? ' today' : ''}${worked ? ' worked' : ''}" aria-label="${label}">
-      ${d}${h ? '<i class="cal-holy" aria-hidden="true"></i>' : ''}</span>`);
+    const key = `${ym}-${String(d).padStart(2, '0')}`;
+    const hasAppt = state.events.some((e) => e.date === key && e.kind === 'appt');
+    const hasEvent = !hasAppt && state.events.some((e) => e.date === key);
+    const hasBill = billsOn(key).length > 0;
+    const w = workoutOn(key, t);
+    const marks = [
+      hasAppt ? '<i class="mk mk-appt"></i>' : hasEvent ? '<i class="mk mk-event"></i>' : '',
+      hasBill ? '<i class="mk mk-bill"></i>' : '',
+      w ? `<i class="mk mk-move${w.done ? ' done' : ''}"></i>` : '',
+    ].join('');
+    const label = [thaiDate(key, { day: 'numeric', month: 'long' }), hasAppt ? 'มีนัด' : hasEvent ? 'มีรายการ' : '', hasBill ? 'มีบิล' : '', w ? (w.done ? 'ออกกำลังกายแล้ว' : 'มีออกกำลังกาย') : '', holy[key] ? 'วันพระ' : ''].filter(Boolean).join(' ');
+    cells.push(`<button class="cal-day${key === t.key ? ' today' : ''}${key === sel ? ' sel' : ''}${key < t.key ? ' past' : ''}" data-act="calDay" data-key="${key}" aria-label="${label}" aria-pressed="${key === sel}">
+      <span>${d}${holy[key] ? '<i class="cal-holy" aria-hidden="true"></i>' : ''}</span><span class="marks" aria-hidden="true">${marks}</span></button>`);
   }
+
+  $('#view-week').innerHTML = `
+    <div class="view-head"><h1>ปฏิทิน</h1></div>
+    <div class="card cal-card">
+      <div class="row between">
+        <button class="icon-btn" data-act="calMonth" data-n="-1" aria-label="เดือนก่อน">${icon('back', { size: 18 })}</button>
+        <h2 class="flush">${monthName(ym)}</h2>
+        <button class="icon-btn" data-act="calMonth" data-n="1" aria-label="เดือนถัดไป">${icon('next', { size: 18 })}</button>
+      </div>
+      <div class="cal">${['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((w) => `<b>${w}</b>`).join('')}${cells.join('')}</div>
+      <div class="legend cal-legend"><span><i class="mk mk-appt"></i>นัด</span><span><i class="mk mk-bill"></i>บิล</span><span><i class="mk mk-move"></i>ออกกำลังกาย</span>${state.settings.holyDays ? '<span><i class="cal-holy static"></i>วันพระ</span>' : ''}</div>
+    </div>
+    ${dayAgenda(sel, t, holy[sel])}
+    <p class="small muted">${t.plan.missed > 0 ? 'บางวันได้พักไป ไม่เป็นไรเลย แมวย้ายตารางออกกำลังกายให้แล้ว' : 'ออกกำลังกายสลับหนัก-เบา-พัก แมวจัดและย้ายให้เองถ้าวันไหนไม่ได้ทำ'}</p>
+    <button class="btn soft block" data-act="editProfile">เปลี่ยนวันว่าง เป้าหมาย หรือกิจกรรม</button>`;
+}
+
+// One day as a short list, all categories together.
+function dayAgenda(key, t, holy) {
+  const rows = [];
+  const row = (time, ic, title, sub = '', done = false) => rows.push({ time, html: `<div class="ag-row${done ? ' done' : ''}">
+    <span class="ag-time">${time ?? ''}</span><span class="lr-ic">${icon(ic, { size: 20 })}</span>
+    <span class="grow"><span class="lr-title">${title}</span>${sub ? `<br><span class="small muted">${sub}</span>` : ''}</span></div>` });
+  for (const e of state.events.filter((x) => x.date === key)) {
+    row(e.time, EVENT_ICON[e.kind] ?? 'list', esc(e.title), e.kind === 'appt' ? 'นัดหมาย' : e.kind === 'work' ? 'งาน' : 'ธุระ / การเตือน', e.done);
+  }
+  for (const b of billsOn(key)) row(null, 'receipt', `จ่าย${esc(b.title)}`, b.amount ? `~฿${b.amount.toLocaleString('th-TH')}` : '', Object.values(b.paid ?? {}).includes(key));
+  const w = workoutOn(key, t);
+  if (w) row(key === t.key ? dayTimeline({ profile: t.p, session: t.session }).find((i) => i.id === 'workout')?.time : null, 'dumbbell', esc(w.title), w.rough ? 'แผนคร่าวๆ แมวจะจัดให้ละเอียดเมื่อถึงสัปดาห์นั้น' : '', w.done);
+  if (t.plan.week.some((d) => d.key === key) && key >= t.key) {
+    const { meals } = mealsFor(key, t.plan.week.find((d) => d.key === key)?.isToday ? t.session : t.plan.week.find((d) => d.key === key)?.session);
+    const names = Object.values(meals).filter(Boolean).map((mm) => mm.name);
+    if (names.length) row(null, 'meal', `มื้ออาหาร ${names.length} มื้อ`, esc(names.join(' · ')));
+  }
+  if (holy) row(null, 'lotus', `วันพระ · ${holy.label}`, 'วันดีๆ สำหรับทำอะไรเบาๆ ให้ใจสงบ');
+  rows.sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''));
   return `<div class="card">
-    <h2>ปฏิทิน${today.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</h2>
-    <div class="cal">${['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((w) => `<b>${w}</b>`).join('')}${cells.join('')}</div>
-    <div class="legend cal-legend"><span><i class="cal-dot"></i>ออกกำลังกายแล้ว</span>${state.settings.holyDays ? '<span>วันพระ</span>' : ''}</div>
-    ${state.settings.holyDays ? '<p class="muted small">วันพระคำนวณจากดวงจันทร์ อาจต่างจากปฏิทินหลวงได้ 1 วัน</p>' : ''}
+    <div class="row between"><h2 class="flush">${key === t.key ? 'วันนี้' : thaiDate(key)}</h2>
+      <button class="btn ghost sm" data-act="eventNew" data-kind="personal" data-date="${key}">${icon('plus', { size: 18 })}เพิ่ม</button></div>
+    ${rows.length ? rows.map((r) => r.html).join('') : '<p class="muted small">ยังไม่มีอะไร วันโล่งๆ ก็ดีนะ</p>'}
+    ${key === t.key ? '<button class="btn soft block gap-top" data-act="tab" data-view="today">ดูรายละเอียดในหน้าวันนี้</button>' : ''}
   </div>`;
 }
+const EVENT_ICON = { appt: 'calendar', work: 'briefcase', personal: 'bell' };
 
 function renderFood() {
   const t = computeToday();
@@ -1525,6 +1843,15 @@ function storyCard(t) {
     <p class="muted small">${shortDate(keys[0])} – ${shortDate(keys[6])}${which === 'this' ? ' (ยังไม่จบสัปดาห์)' : ''}</p>
     <div class="hero">${mascot(story.stats.workouts >= 3 ? 'bright' : 'normal', { size: 64 })}
       <div class="story-text">${story.lines.map((l) => `<p>${l}</p>`).join('')}</div></div>
+    <button class="btn ghost sm" data-act="share" data-kind="week">${icon('heart', { size: 16 })}แชร์ให้คนสนิท</button>
+  </div>
+  <div class="card">
+    <h2>สรุปรายเดือน</h2>
+    <p class="small muted">เล่าเป็นเรื่องสั้นๆ เน้นความก้าวหน้า ไม่ใช่ความสมบูรณ์แบบ</p>
+    <div class="row wrap">
+      <button class="btn soft sm" data-act="openWrapped" data-ym="${monthOf(t.key)}">เดือนนี้</button>
+      <button class="btn soft sm" data-act="openWrapped" data-ym="${addMonths(monthOf(t.key), -1)}">เดือนที่แล้ว</button>
+    </div>
   </div>`;
 }
 
@@ -1692,6 +2019,9 @@ function renderSettings() {
     <h1>ตั้งค่า</h1>
     <div class="card">
       <h2>ข้อมูลของฉัน</h2>
+      <form class="row" data-form="name">
+        <input type="text" name="nick" value="${esc(state.profile?.name ?? '')}" placeholder="ชื่อที่อยากให้แมวเรียก" maxlength="20" autocomplete="nickname" aria-label="ชื่อเล่น">
+        <button class="btn soft sm">บันทึก</button></form>
       <p>${GOALS[p.goal].label}</p>
       <p>ว่าง ${WEEK_ORDER.filter((n) => p.days.includes(n)).map((n) => WEEKDAYS[n]).join(' ')} · ช่วง${SLOTS[p.slot].label}</p>
       <p>${p.activities.map((a) => ACTIVITIES[a].label).join(' · ')}</p>
@@ -1710,6 +2040,14 @@ function renderSettings() {
         <button class="btn soft" data-act="goal" data-n="1" aria-label="เพิ่มเป้า">+</button>
       </div>
       <p class="muted small">กรอกข้อมูลร่างกายในหน้า "ของฉัน" แล้วแมวจะคำนวณให้เอง</p>`}
+    </div>
+
+    <div class="card">
+      <h2>โหมดเดินทาง</h2>
+      <div class="rem-row"><span class="grow">กำลังเดินทาง ไม่มียิมหรือครัว<br><span class="small muted">ใช้ท่าที่ไม่ต้องใช้เครื่อง เมนูซื้อง่าย และเป้าเบาลง</span></span>
+        <label class="switch" aria-label="เปิด/ปิดโหมดเดินทาง"><input type="checkbox" data-act="travelToggle" ${travelOn() ? 'checked' : ''}><span></span></label></div>
+      ${travelOn() ? `<label class="rem-row"><span class="grow small muted">กลับบ้านวันไหน (ไม่ใส่ก็ได้ ปิดเองได้ทุกเมื่อ)</span>
+        <input type="date" data-change="travelUntil" value="${s.travel?.until ?? ''}" min="${todayKey()}" style="width:auto"></label>` : ''}
     </div>
 
     <div class="card">
@@ -1752,16 +2090,64 @@ function renderSettings() {
       </form>
     </div>
 
-    <div class="card">
-      <h2>ข้อมูล</h2>
-      <p class="muted small">ข้อมูลทั้งหมดเก็บในเครื่องนี้เท่านั้น ส่งออกเก็บไว้เป็นระยะก็ดีนะ</p>
-      <div class="row wrap">
-        <button class="btn soft grow" data-act="export">ส่งออก</button>
-        <label class="btn soft grow">นำเข้า<input type="file" accept="application/json" data-change="import" hidden></label>
-        <button class="btn danger grow" data-act="reset">ล้างข้อมูล</button>
-      </div>
-    </div>
+    ${privacyCard()}
     <p class="muted small center">แอปนี้ช่วยจัดตารางสุขภาพเบื้องต้น ไม่สามารถใช้แทนคำแนะนำของแพทย์หรือผู้ฝึกสอนได้</p>`;
+}
+
+// ---------- privacy ----------
+// What's stored, one line each, each deletable. Nothing leaves the device.
+const WIPE = {
+  days: { label: 'บันทึกรายวัน (เช็กอิน น้ำ อารมณ์ มื้ออาหาร ออกกำลังกาย อาการ)', unit: 'วัน', count: () => Object.keys(state.days).length, run: () => { state.days = {}; } },
+  body: { label: 'น้ำหนักตัวและข้อมูลร่างกาย', unit: 'ครั้ง', count: () => state.weights.length + (state.profile?.body ? 1 : 0), run: () => { state.weights = []; if (state.profile) state.profile.body = null; } },
+  lifts: { label: 'น้ำหนักที่ยกและค่าเครื่องในยิม', unit: 'เครื่อง', count: () => new Set([...Object.keys(state.lifts), ...Object.keys(state.machines)]).size, run: () => { state.lifts = {}; state.machines = {}; } },
+  photos: { label: 'รูปเครื่องในยิมที่ถ่ายเอง', unit: 'รูป', count: () => Object.keys(ui.photoUrls).length, noUndo: true },
+  events: { label: 'นัดหมาย งาน และการเตือน', unit: 'รายการ', count: () => state.events.length, run: () => { state.events = []; } },
+  bills: { label: 'บิลประจำเดือน', unit: 'บิล', count: () => state.bills.length, run: () => { state.bills = []; } },
+  expenses: { label: 'รายจ่าย', unit: 'รายการ', count: () => state.expenses.length, run: () => { state.expenses = []; } },
+  notes: { label: 'โน้ตและสิ่งที่โยนไว้', unit: 'รายการ', count: () => state.notes.length + state.inbox.length, run: () => { state.notes = []; state.inbox = []; } },
+  shop: { label: 'ลิสต์ของที่ต้องซื้อ', unit: 'อย่าง', count: () => state.shopList.length, run: () => { state.shopList = []; state.shopping = {}; } },
+};
+
+function privacyCard() {
+  const s = state.settings;
+  const sw = (act, on, label) => `<label class="switch" aria-label="${label}"><input type="checkbox" data-act="${act}" ${on ? 'checked' : ''}><span></span></label>`;
+  const off = (label, sub) => `<div class="rem-row"><span class="grow">${label}<br><span class="small muted">${sub}</span></span>
+    <span class="chip-mini">ปิดอยู่</span></div>`;
+  return `<div class="card" id="privacy">
+    <h2>ข้อมูลและความเป็นส่วนตัว</h2>
+    <p class="small">ทุกอย่างเก็บในเครื่องนี้เท่านั้น ไม่มีบัญชี ไม่ส่งขึ้นเซิร์ฟเวอร์ ไม่มีโฆษณา</p>
+    <h3>แอปเก็บอะไรไว้บ้าง</h3>
+    ${Object.entries(WIPE).map(([k, w]) => {
+      const n = w.count();
+      return `<div class="rem-row"><span class="grow">${w.label}<br><span class="small muted">${n ? `${n.toLocaleString('th-TH')} ${w.unit}` : 'ไม่มี'}</span></span>
+        ${n ? `<button class="btn ${ui.confirmWipe === k ? 'danger' : 'ghost'} sm" data-act="wipe" data-what="${k}">${ui.confirmWipe === k ? 'แตะอีกครั้งเพื่อลบ' : 'ลบ'}</button>` : ''}</div>`;
+    }).join('')}
+    <h3>การเรียนรู้พฤติกรรม</h3>
+    <div class="rem-row"><span class="grow">ให้แมวสังเกตแพทเทิร์นและนิสัย<br><span class="small muted">คิดในเครื่องนี้เท่านั้น เป็นข้อสังเกต ไม่ใช่คำวินิจฉัย ปิดแล้วแมวจะไม่ทักเรื่องแพทเทิร์น</span></span>
+      ${sw('learnToggle', s.learn !== false, 'เปิด/ปิดการเรียนรู้พฤติกรรม')}</div>
+    <h3>ไมโครโฟน</h3>
+    <div class="rem-row"><span class="grow">แสดงปุ่มไมค์<br><span class="small muted">ใช้เฉพาะตอนกดปุ่ม เบราว์เซอร์จะส่งเสียงไปแปลงเป็นข้อความด้วยบริการของตัวเอง (เช่น Google หรือ Apple) แอปไม่เก็บเสียงไว้</span></span>
+      ${sw('micToggle', s.mic !== false, 'เปิด/ปิดปุ่มไมค์')}</div>
+    <h3>การเชื่อมต่อภายนอก</h3>
+    <p class="small muted">แอปจะไม่เชื่อมต่ออะไรเอง เมื่อพร้อมจะถามก่อนทีละอย่าง และปิดได้ทุกเมื่อ</p>
+    ${off('ปฏิทิน (Google / Apple)', 'ยังไม่เปิดให้เชื่อม · มาในเวอร์ชันถัดไป')}
+    ${off('สภาพอากาศตามตำแหน่ง', 'ตอนนี้ใช้แบบแตะบอกเองในหน้า "จัดวันนี้ให้ฉัน"')}
+    ${off('ข้อมูลสุขภาพจากนาฬิกาหรือมือถือ', 'ตอนนี้ใส่จำนวนก้าวเองในหน้าวันนี้')}
+    <h3>สำรองข้อมูล</h3>
+    <div class="row wrap">
+      <button class="btn soft grow" data-act="export">ส่งออกทั้งหมด</button>
+      <label class="btn soft grow">นำเข้า<input type="file" accept="application/json" data-change="import" hidden></label>
+    </div>
+    <button class="btn ${ui.confirmWipe === 'all' ? 'danger' : 'ghost'} block gap-top" data-act="wipe" data-what="all">${ui.confirmWipe === 'all' ? 'แตะอีกครั้ง: ลบทุกอย่างและเริ่มใหม่' : 'ลบข้อมูลทั้งหมด'}</button>
+  </div>`;
+}
+
+async function wipePhotos() {
+  for (const [id, url] of Object.entries(ui.photoUrls)) {
+    await photos.delete(id).catch(() => {});
+    URL.revokeObjectURL(url);
+  }
+  ui.photoUrls = {};
 }
 
 // ---------- reminders ----------
@@ -1971,6 +2357,14 @@ const life = createLife({
   todayKey, getDay, editDay, sfx, newId, planShopping, showView,
   tick: () => tick(),
   dateKeyOf: (ms) => dateKey(new Date(ms)),
+  inboxSubmit: (text) => inbox.submit(text),
+  inboxPane: () => inbox.logPane(),
+});
+
+const inbox = createInbox({
+  state, ui, esc, save, render, renderSheet, toast, pushSheet, popSheet, topSheet, sheetTop, todayKey, editDay, newId, sfx,
+  openPanel: () => life.openNote(),
+  closePanel: () => life.closeNote(),
 });
 
 // ---------- events ----------
@@ -1992,7 +2386,7 @@ const actions = {
     else replaceSheet({ ...s, step: s.step - 1 });
   },
   obSkip: () => {
-    state.profile = defaultProfile(state.legacyGymDays);
+    state.profile = { ...defaultProfile(state.legacyGymDays), name: topSheet().draft?.name ?? '' };
     save();
     popSheet();
   },
@@ -2118,17 +2512,126 @@ const actions = {
     render();
     if (day.mood) sfx.knock();
   },
+  // Low-energy day: softer targets, non-urgent work and errands move to tomorrow.
   easyOn: () => {
-    editDay(todayKey()).easy = true;
+    const key = todayKey();
+    const day = editDay(key);
+    day.easy = true;
+    const moved = postponable(state.events, key);
+    for (const e of moved) {
+      e.date = addDays(key, 1);
+      e.postponedFrom = key;
+    }
+    day.postponed = moved.map((e) => e.id);
     save();
     render();
     sfx.bell();
-    toast('ลดเป้าให้แล้ว พักใจได้เลย', () => actions.easyOff());
+    toast(moved.length ? `วันนี้ไม่ต้องเอา 100% ก็ได้ · เลื่อน ${moved.length} อย่างไปพรุ่งนี้` : 'วันนี้ไม่ต้องเอา 100% ก็ได้', () => actions.easyOff());
   },
   easyOff: () => {
-    editDay(todayKey()).easy = false;
+    const key = todayKey();
+    const day = editDay(key);
+    day.easy = false;
+    for (const id of day.postponed ?? []) {
+      const e = state.events.find((x) => x.id === id);
+      if (e && e.postponedFrom === key) {
+        e.date = key;
+        delete e.postponedFrom;
+      }
+    }
+    day.postponed = [];
     save();
     render();
+  },
+  arrange: () => pushSheet({ type: 'arrange', orig: { weather: getDay(todayKey()).weather ?? null, travel: structuredClone(state.settings.travel ?? null) } }),
+  arrWeather: (d) => {
+    editDay(todayKey()).weather = d.v === 'none' ? null : d.v;
+    save();
+    render();
+    renderSheet();
+  },
+  travelToggle: () => {
+    const on = !travelOn();
+    state.settings.travel = on ? { on: true, since: todayKey(), until: state.settings.travel?.until ?? null } : { on: false };
+    save();
+    render();
+    renderSheet();
+    toast(on ? 'เปิดโหมดเดินทาง: ไม่ต้องใช้ยิม เมนูซื้อง่าย เป้าเบาลง' : 'ปิดโหมดเดินทางแล้ว กลับบ้านปลอดภัยนะ');
+  },
+  arrApply: () => {
+    const t = computeToday();
+    const { items, ctx } = arrangeInputs(t);
+    const r = arrangeDay(items, ctx);
+    editDay(t.key).arranged = { ...r, at: Date.now() };
+    popSheet();
+    save();
+    render();
+    sfx.bell();
+    toast(r.changes.length ? `จัดให้แล้ว ปรับ ${r.changes.length} อย่าง` : 'แผนเดิมลงตัวอยู่แล้ว');
+  },
+  arrCancel: () => {
+    const s = topSheet();
+    editDay(todayKey()).weather = s.orig.weather;
+    state.settings.travel = s.orig.travel ?? { on: false };
+    save();
+    popSheet();
+    render();
+  },
+  arrReset: () => {
+    delete editDay(todayKey()).arranged;
+    save();
+    popSheet();
+    render();
+    toast('กลับเป็นแผนเดิมแล้ว');
+  },
+  patternAction: (d) => {
+    if (d.action === 'lighten') editDay(todayKey()).lighten = true;
+    state.insightSeen[d.id] = todayKey();
+    save();
+    render();
+    toast('ลดโปรแกรมวันนี้ให้แล้ว ไม่ต้องฝืนนะ', () => {
+      delete editDay(todayKey()).lighten;
+      save();
+      render();
+    });
+  },
+  specialYes: () => {
+    const t = computeToday();
+    const sp = specialToday(t);
+    if (!sp) return;
+    const day = editDay(t.key);
+    day.special = { ...sp, accepted: true };
+    if (sp.kind === 'menu') day.mealPick = { ...(day.mealPick ?? {}), d: sp.ref };
+    state.lastSpecial = t.key;
+    save();
+    render();
+    sfx.bell();
+    toast(sp.kind === 'menu' ? 'เปลี่ยนมื้อเย็นเป็นเมนูใหม่ให้แล้ว' : 'ใส่ไว้ในรายการวันนี้แล้ว');
+  },
+  specialNo: () => {
+    const key = todayKey();
+    editDay(key).special = 'no';
+    state.lastSpecial = key;
+    save();
+    render();
+  },
+  openWrapped: (d) => {
+    if (d.ym !== monthOf(todayKey())) state.wrappedSeen = d.ym;
+    save();
+    pushSheet({ type: 'wrapped', ym: d.ym });
+  },
+  share: (d) => share(shareText(d.kind, d)),
+  nightMove: () => {
+    const key = todayKey();
+    const left = dayItems(computeToday()).filter((i) => !i.done && i.life === 'event' && i.ev.kind !== 'appt').map((i) => i.ev);
+    for (const e of left) e.date = addDays(key, 1);
+    save();
+    render();
+    toast(`ย้าย ${left.length} อย่างไปพรุ่งนี้แล้ว ไม่เป็นไรเลย`, () => {
+      for (const e of left) e.date = key;
+      save();
+      render();
+    });
   },
   holyKeep: () => {
     editDay(todayKey()).holyKeep = true;
@@ -2267,6 +2770,16 @@ const actions = {
   },
 
   // week & food
+  calDay: (d) => {
+    ui.calDay = d.key;
+    renderWeek();
+  },
+  calMonth: (d) => {
+    const next = addMonths(ui.calMonth ?? monthOf(todayKey()), Number(d.n));
+    ui.calMonth = next;
+    ui.calDay = next === monthOf(todayKey()) ? todayKey() : `${next}-01`;
+    renderWeek();
+  },
   weekOpen: (d) => {
     ui.weekOpen = ui.weekOpen === d.key ? null : d.key;
     renderWeek();
@@ -2329,10 +2842,48 @@ const actions = {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   },
-  reset: () => {
-    if (!confirm('ลบข้อมูลทั้งหมดและเริ่มใหม่ใช่ไหม? กู้คืนไม่ได้นะ')) return;
-    replaceState(defaultState());
-    openOnboard();
+  // Two taps to delete: the first arms the button, the second deletes.
+  wipe: async (d) => {
+    if (ui.confirmWipe !== d.what) {
+      ui.confirmWipe = d.what;
+      renderSettings();
+      clearTimeout(ui.wipeTimer);
+      ui.wipeTimer = setTimeout(() => {
+        ui.confirmWipe = null;
+        if (ui.view === 'settings') renderSettings();
+      }, 5000);
+      return;
+    }
+    ui.confirmWipe = null;
+    if (d.what === 'all') {
+      await wipePhotos();
+      replaceState(defaultState());
+      openOnboard();
+      return;
+    }
+    const w = WIPE[d.what];
+    if (d.what === 'photos') {
+      await wipePhotos();
+      render();
+      toast('ลบรูปทั้งหมดแล้ว');
+      return;
+    }
+    const snapshot = structuredClone(state);
+    w.run();
+    save();
+    render();
+    toast(`ลบ${w.label}แล้ว`, () => replaceState(snapshot));
+  },
+  learnToggle: (d, el) => {
+    state.settings.learn = el.checked;
+    save();
+    render();
+    toast(el.checked ? 'แมวจะคอยสังเกตให้ (คิดในเครื่องเท่านั้น)' : 'ปิดการเรียนรู้แล้ว แมวจะไม่ทักเรื่องแพทเทิร์น');
+  },
+  micToggle: (d, el) => {
+    state.settings.mic = el.checked;
+    save();
+    render();
   },
 };
 
@@ -2344,6 +2895,11 @@ function replaceState(next) {
 }
 
 const changes = {
+  travelUntil: (el) => {
+    state.settings.travel = { ...state.settings.travel, until: el.value || null };
+    save();
+    render();
+  },
   repeatMin: (el) => {
     state.settings.repeatMin = Number(el.value);
     save();
@@ -2400,6 +2956,13 @@ const changes = {
 };
 
 const forms = {
+  name: (form) => {
+    if (!state.profile) return;
+    state.profile.name = form.elements.nick.value.trim();
+    save();
+    render();
+    toast(state.profile.name ? `สวัสดี ${state.profile.name}` : 'ลบชื่อแล้ว');
+  },
   machine: (form) => saveMachine(form),
   reward: (form) => {
     const title = form.title.value.trim();
@@ -2460,8 +3023,8 @@ const forms = {
   },
 };
 
-Object.assign(actions, life.actions);
-Object.assign(forms, life.forms);
+Object.assign(actions, life.actions, inbox.actions);
+Object.assign(forms, life.forms, inbox.forms);
 
 document.addEventListener('click', (e) => {
   ui.userActed = true;
@@ -2480,10 +3043,16 @@ document.addEventListener('keydown', (e) => {
 // Typed values in the first-run form go straight into the draft, so tapping a
 // chip (which re-renders the sheet) never loses what was typed.
 document.addEventListener('input', (e) => {
+  const rv = e.target.closest('[data-rv]');
+  if (rv) {
+    inbox.onInput(rv);
+    return;
+  }
   const el = e.target.closest('[data-input]');
   const s = topSheet();
   if (!el || s?.type !== 'onboard') return;
-  if (el.dataset.input === 'weightKg') s.draft.weightKg = el.value;
+  if (el.dataset.input === 'name') s.draft.name = el.value.trim();
+  else if (el.dataset.input === 'weightKg') s.draft.weightKg = el.value;
   else s.draft.body[el.dataset.input] = el.value;
 });
 document.addEventListener('change', (e) => {
@@ -2507,6 +3076,7 @@ document.addEventListener('visibilitychange', () => {
 const TAB_ICONS = { today: 'lotus', week: 'calendar', food: 'bowl', gym: 'dumbbell', life: 'list', me: 'user' };
 for (const b of document.querySelectorAll('.tabs [data-view]')) b.insertAdjacentHTML('afterbegin', icon(TAB_ICONS[b.dataset.view]));
 $('#fab-note').innerHTML = icon('pen');
+$('#quicknote [data-act=mic]').innerHTML = `${icon('mic', { size: 18 })}พูด`;
 if (useHistory) history.replaceState(null, '');
 render();
 if (!state.profile) openOnboard();

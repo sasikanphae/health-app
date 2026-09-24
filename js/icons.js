@@ -58,6 +58,7 @@ const P = {
   wallet: '<path d="M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4Z"/><path d="M4 7l11-3v3M15 13.5h2"/>',
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>',
   list: '<path d="M9 7h11M9 12h11M9 17h11"/><circle cx="5" cy="7" r=".7"/><circle cx="5" cy="12" r=".7"/><circle cx="5" cy="17" r=".7"/>',
+  mic: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/>',
   trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/>',
 };
 

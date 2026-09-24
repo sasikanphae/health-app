@@ -1,7 +1,7 @@
 // Everything the mascot says. Warm, a little silly, never guilt-tripping.
 import { hash } from './health.js';
 
-const pick = (list, seed) => list[hash(seed) % list.length];
+export const pick = (list, seed) => list[hash(seed) % list.length];
 
 const LINES = {
   morning: [
@@ -30,7 +30,7 @@ const LINES = {
     'วันพักทั้งที กินข้าวอร่อยๆ แล้วนอนเร็วๆ',
   ],
   missed: [
-    'เมื่อวานพักไป ไม่เป็นไรเลย แมวย้ายตารางให้แล้ว',
+    'เมื่อวานพักไป ไม่เป็นไรเลย เดี๋ยวเราจัดใหม่ แมวย้ายตารางให้แล้ว',
     'ตารางขยับให้เรียบร้อย ไม่ต้องคิดอะไร แค่ทำวันนี้พอ',
   ],
   progress: [
@@ -53,6 +53,14 @@ const LINES = {
     'ครบหมด! ปรบมือให้ตัวเองหน่อย',
   ],
 };
+
+// Evening, after the day is mostly over: kind words, never a scorecard.
+export const NIGHT_LINES = [
+  'วันนี้ทำได้ดีแล้วนะ ที่เหลือพรุ่งนี้ค่อยว่ากัน',
+  'เหนื่อยมาทั้งวันแล้ว ได้เวลาพักใจ แมวดูแลตารางพรุ่งนี้ให้เอง',
+  'ไม่ว่าวันนี้จะได้กี่อย่าง เธอก็ดูแลตัวเองมาทั้งวันแล้ว นอนหลับฝันดีนะ',
+  'วางมือถือ หายใจลึกๆ พรุ่งนี้ค่อยเริ่มใหม่แบบสบายๆ',
+];
 
 export function greeting({ key, mood, checkedIn, done, total, isRestDay, missed, hour, easy, habit, holy }) {
   const seed = `${key}:${done}`;
@@ -84,6 +92,10 @@ export const ADJUST_TEXT = {
   'sore-light': 'เมื่อยนิดๆ เลยลดความหนักลงให้',
   swap: 'ส่วนที่เมื่อยมากได้พักก่อน สลับไปเล่นส่วนอื่นแทน',
   sore: 'เมื่อยมาก เปลี่ยนเป็นเดินหรือยืดเส้นเบาๆ แทน',
+  rain: 'ฝนตก เปลี่ยนออกกำลังกายข้างนอกเป็นคาร์ดิโอในบ้านแทน ไม่ต้องเปียก',
+  hot: 'อากาศร้อนจัด ลดความหนักลง และเลี่ยงแดดกลางวัน ดื่มน้ำเพิ่มด้วยนะ',
+  travel: 'โหมดเดินทาง: ใช้ท่าที่ไม่ต้องใช้เครื่อง และเบาลงกว่าปกติ',
+  pattern: 'ลดโปรแกรมลงตามที่ตกลงกันไว้ วันนี้เบาๆ พอ',
 };
 
 export const REMINDER_TEXT = {

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addDays, emptyDay } from '../js/health.js';
 import {
-  findPatterns, findHabit, weeklyStory, rewardProgress, sleepHoursOf, usedDay,
+  findPatterns, findHabit, weeklyStory, rewardProgress, sleepHoursOf, usedDay, monthlyStory, specialDay,
 } from '../js/insights.js';
 
 const TODAY = '2026-09-23'; // Wednesday
@@ -24,7 +24,8 @@ test('short sleep followed by skipped training days → pattern', () => {
   for (const k of ['2026-09-21', '2026-09-16', '2026-09-14']) days[k] = day({ checkin: ci('5-6') });
   const [p] = findPatterns({ days, profile, today: TODAY });
   assert.equal(p.id, 'short-sleep-skip');
-  assert.match(p.text, /3 ใน 3 ครั้งหลังที่นอนน้อยกว่า 6 ชม\. วันรุ่งขึ้นมักเลื่อนไปยิม/);
+  assert.match(p.text, /^ฉันสังเกตว่าช่วง 3 สัปดาห์ที่ผ่านมา วันที่นอนน้อยกว่า 6 ชม\. วันรุ่งขึ้นมักไม่ได้ไปยิม \(3 ใน 3 ครั้ง\)/);
+  assert.equal(p.action, null);
 });
 
 test('no pattern when the evidence is thin or mixed', () => {
@@ -107,4 +108,43 @@ test('reward progress counts from the start date', () => {
   assert.equal(p2.near, false); // 75%
   assert.equal(rewardProgress({ ...r2, target: 3 }, days, TODAY).done, true);
   assert.equal(rewardProgress({ metric: 'water', target: 1, start: '2026-09-01' }, days, TODAY).done, true);
+});
+
+test('pattern offers to lighten today after another short night', () => {
+  const days = {};
+  for (const k of ['2026-09-21', '2026-09-16', '2026-09-14']) days[k] = day({ checkin: ci('5-6') });
+  const [p] = findPatterns({ days, profile, today: TODAY, todayCheckin: ci('lt5') });
+  assert.equal(p.action.id, 'lighten');
+  assert.match(p.tip, /อยากให้ลดโปรแกรมลงไหม/);
+});
+
+test('monthly story: progress, comebacks and best day', () => {
+  const days = {
+    '2026-08-20': day({ workout: done() }),
+    '2026-09-02': day({ workout: done(), waterMet: true, steps: 8000, mood: 5, stepsMet: true }),
+    '2026-09-03': day({ water: 3, steps: 4000 }),
+    '2026-09-10': day({ workout: done('walk'), steps: 6000 }),
+    '2026-09-11': day({ easy: true }),
+  };
+  const s = monthlyStory({ days, ym: '2026-09' });
+  assert.equal(s.stats.workouts, 2);
+  assert.equal(s.stats.steps, 18000);
+  assert.equal(s.stats.comebacks, 2); // back after Aug 20, and after Sep 2
+  assert.equal(s.stats.best, '2026-09-02');
+  assert.equal(s.stats.waterPct, 25);
+  assert.ok(s.highlights[0].includes('กลับมาเริ่มใหม่ได้ 2 ครั้ง'));
+  assert.ok(!s.lines.join(' ').match(/ไม่สำเร็จ|พลาด|ล้มเหลว/));
+});
+
+test('special day: occasional, never on tired days, at most weekly', () => {
+  const options = { exercises: [{ id: 'lunge', name: 'ลันจ์' }], menus: [{ id: 'm1', name: 'แกงจืด' }] };
+  const hits = [];
+  for (let i = 1; i <= 30; i++) {
+    const key = `2026-09-${String(i).padStart(2, '0')}`;
+    if (specialDay({ key, options, lastSpecial: hits.at(-1) ?? null })) hits.push(key);
+  }
+  assert.ok(hits.length >= 2 && hits.length <= 5, `got ${hits.length}`);
+  for (let i = 1; i < hits.length; i++) assert.ok(hits[i] >= addDays(hits[i - 1], 6));
+  assert.equal(specialDay({ key: hits[0], options, easy: true }), null);
+  assert.equal(specialDay({ key: hits[0], options, level: 'rest' }), null);
 });
