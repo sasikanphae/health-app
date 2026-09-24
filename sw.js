@@ -1,5 +1,5 @@
 // Offline support (network first, cache fallback) and notification button handling.
-const CACHE = 'health-app-v17';
+const CACHE = 'health-app-v18';
 const ASSETS = [
   './',
   'index.html',
@@ -55,6 +55,8 @@ const ASSETS = [
   'js/push-plan.js',
   'js/daily-quotes.js',
   'js/bell.js',
+  'js/mala.js',
+  'js/calm-view.js',
   'js/push-client.js',
   'js/push-view.js',
 ];

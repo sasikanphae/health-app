@@ -144,3 +144,50 @@ export function blessing() {
   bell({ pitch: 523 });
   setTimeout(() => bell({ pitch: 784, volume: 0.12 }), 260);
 }
+
+// ลูกประคำ: a soft wooden bead click (two short partials and a breath of noise).
+export function beadClick({ volume = 0.22 } = {}) {
+  const a = audio();
+  if (!a) return;
+  const t = a.currentTime;
+  const out = a.createGain();
+  out.gain.value = volume;
+  out.connect(bus(a));
+  for (const [f, lv, d] of [[1850, 1, 0.035], [3120, 0.45, 0.02]]) {
+    const o = a.createOscillator();
+    const g = a.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.exponentialRampToValueAtTime(f * 0.85, t + d);
+    g.gain.setValueAtTime(lv, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g).connect(out);
+    o.start(t);
+    o.stop(t + d + 0.01);
+  }
+}
+
+// A light tap you can feel. Android: vibrate. iPhone has no vibrate API; on
+// iOS 18 toggling a native switch control gives a system haptic, so a hidden
+// one is clicked (only works inside a tap; silently does nothing elsewhere).
+let hapticLabel = null;
+export function haptic(ms = 8) {
+  if (navigator.vibrate) {
+    navigator.vibrate(ms);
+    return;
+  }
+  try {
+    if (!hapticLabel) {
+      hapticLabel = document.createElement('label');
+      hapticLabel.setAttribute('aria-hidden', 'true');
+      hapticLabel.style.cssText = 'position:fixed;left:-100px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.setAttribute('switch', '');
+      input.tabIndex = -1;
+      hapticLabel.append(input);
+      document.body.append(hapticLabel);
+    }
+    hapticLabel.click();
+  } catch { /* no haptics here */ }
+}

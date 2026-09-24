@@ -1,7 +1,8 @@
-// ระฆังเตือนสติ: a big bell to strike whenever you like. No counts, no goals.
+// ระฆังเตือนสติ (in the ลดความโกรธ tab): a big bell to strike whenever you like.
+// No counts, no goals.
 // Each strike: a singing-bowl sound (sound.js), the bell swings, a ring
 // ripples out, the cat looks up, and a new short line appears.
-import { mindfulBell, releaseAudioSession } from './sound.js';
+import { mindfulBell, releaseAudioSession, haptic } from './sound.js';
 
 export const BELL_LINES = [
   'กลับมาอยู่กับลมหายใจ',
@@ -40,9 +41,9 @@ const BELL_SVG = `<svg class="bell-svg" viewBox="0 0 120 120" aria-hidden="true"
 export function createBell(ctx) {
   const ui = { line: null, catTimer: null };
 
-  function render() {
-    return `${ctx.sheetTop('ระฆังเตือนสติ', { close: '✕' })}
-      <div class="bell-page">
+  // The bell half of the "ลดความโกรธ" tab.
+  function panel() {
+    return `<div class="bell-page">
         <div class="bell-cat" aria-hidden="true">${ctx.mascot('normal', { size: 84 })}</div>
         <div class="bell-stage">
           <button class="bell-btn" data-act="bellStrike" aria-label="ตีระฆัง" aria-describedby="bell-line">${BELL_SVG}</button>
@@ -56,7 +57,7 @@ export function createBell(ctx) {
   function strike(el) {
     ctx.ui.userActed = true;
     mindfulBell();
-    navigator.vibrate?.(15);
+    haptic(15);
     ui.line = nextLine(ui.line);
     const page = el.closest('.bell-page');
     const line = page.querySelector('.bell-line');
@@ -85,12 +86,8 @@ export function createBell(ctx) {
   }
 
   const actions = {
-    bellOpen: () => {
-      ui.line = null;
-      ctx.pushSheet({ type: 'bell' });
-    },
     bellStrike: (d, el) => strike(el),
   };
 
-  return { render, actions, release: releaseAudioSession };
+  return { panel, actions, release: releaseAudioSession };
 }

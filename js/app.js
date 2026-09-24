@@ -29,7 +29,7 @@ import {
 } from './equipment.js';
 import { createLife } from './life-view.js';
 import { createPush } from './push-view.js';
-import { createBell } from './bell.js';
+import { createCalm } from './calm-view.js';
 import { DAILY_QUOTES, getTodayQuote, getRandomQuote } from './daily-quotes.js';
 import { pushCandidates, pushSnapshot } from './push-plan.js';
 import {
@@ -632,10 +632,8 @@ function renderSheet() {
   el.hidden = !s;
   document.body.style.overflow = s ? 'hidden' : '';
   document.body.classList.toggle('sheet-open', !!s);
-  if (s?.type !== 'bell') mindful.release(); // back to normal iOS audio (silent switch respected)
   if (!s) return;
   $('#sheet-body').innerHTML = {
-    bell: mindful.render,
     onboard: renderOnboard,
     checkin: renderCheckin,
     session: renderSession,
@@ -1313,7 +1311,7 @@ function renderToday() {
   $('#view-today').innerHTML = `
     <div class="page-title today-title">
       <h1 class="hello">${timeGreeting(hour)}${name ? ` ${esc(name)}` : ''}</h1>
-      <button class="bell-mini" data-act="bellOpen" aria-label="ระฆังเตือนสติ" title="ระฆังเตือนสติ">${icon('bell', { size: 26 })}</button>
+      <button class="bell-mini" data-act="calmOpen" data-tab="bell" aria-label="ระฆังเตือนสติ" title="ระฆังเตือนสติ">${icon('bell', { size: 26 })}</button>
       <span class="cat-circle">${mascot(mood, { size: 76 })}</span>
     </div>
     <div class="bubble">${msg}</div>
@@ -2970,6 +2968,7 @@ function handleReminderAction({ id, type, action, ref }) {
 
 // ---------- view switching ----------
 function showView(view) {
+  if (ui.view === 'calm' && view !== 'calm') calm.release(); // back to normal iOS audio (silent switch respected)
   ui.view = view;
   document.body.dataset.view = view;
   document.querySelectorAll('.tabs [data-view]').forEach((t) =>
@@ -2993,6 +2992,7 @@ function render() {
   renderMe();
   renderSettings();
   life.renderLife();
+  calm.render();
   renderAlerts();
   checkRewards();
   magic.updateFab();
@@ -3018,7 +3018,7 @@ const magic = createMagic({
   busyWeekdays: () => busyWeekdays(assistant.active()),
 });
 
-const mindful = createBell({ ui, sheetTop, mascot, pushSheet });
+const calm = createCalm({ $, ui, mascot, pageTitle, showView: (v) => showView(v) });
 
 const push = createPush({
   state, ui, esc, save, toast, pushSheet, popSheet, sheetTop, mascot, renderSettings: () => renderSettings(),
@@ -3800,7 +3800,7 @@ const forms = {
   },
 };
 
-Object.assign(actions, life.actions, inbox.actions, assistant.actions, magic.actions, push.actions, mindful.actions, {
+Object.assign(actions, life.actions, inbox.actions, assistant.actions, magic.actions, push.actions, calm.actions, {
   whyItem: (d) => {
     ui.whyItem = ui.whyItem === d.id ? null : d.id;
     renderToday();
@@ -3875,7 +3875,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---------- start ----------
-const TAB_ICONS = { today: 'lotus', week: 'calendar', food: 'bowl', gym: 'dumbbell', life: 'list', me: 'user' };
+const TAB_ICONS = { today: 'lotus', week: 'calendar', food: 'bowl', calm: 'bell', gym: 'dumbbell', life: 'list', me: 'user' };
 for (const b of document.querySelectorAll('.tabs [data-view]')) b.insertAdjacentHTML('afterbegin', icon(TAB_ICONS[b.dataset.view]));
 $('#fab-note').innerHTML = icon('pen');
 $('#fab-magic').innerHTML = `${icon('sparkle', { size: 18 })}<span>จัดการให้หน่อย</span>`;

@@ -30,6 +30,7 @@
   --page-gym: #8acff0;
   --page-life: #f7b79e;
   --page-me: #f6c85f;
+  --page-calm: #9ddcc4;
   --on-page: #111111;
   --muted-page: #3b3830;
   --chart-trend: #111111;
@@ -51,6 +52,7 @@
     --page-gym: #10202b;
     --page-life: #2a1914;
     --page-me: #2a2110;
+    --page-calm: #10261e;
     --page: #1d1b17;
     --on-page: #fbf6ea;
     --muted-page: #cfc7b5;
@@ -1032,3 +1034,42 @@ circle.pick { fill: #111; }
   .bell-btn.swing .bell-svg, .bell-cat.startle { animation: none; }
   .bell-ripple { animation-duration: 1.2s; }
 }
+
+/* ---------- แท็บ ลดความโกรธ ---------- */
+body[data-view="calm"] { --page: var(--page-calm); }
+/* 7 menu items: tighter padding, and the long label may wrap to two short lines */
+.tabs button { min-width: 0; padding-left: 2px; padding-right: 2px; }
+.tabs button span { font-size: .7rem; line-height: 1.15; text-align: center; max-width: 100%; overflow-wrap: anywhere; }
+.tabs button[aria-selected="true"] .ic { width: 44px; padding: 3px 8px; }
+.calm-lead { margin: -6px 0 14px; }
+.calm-seg { margin-bottom: 18px; }
+#view-calm .bell-page { padding-top: 4px; }
+#view-calm .bell-stage { width: min(64vw, 250px); }
+#view-calm .bell-line, #view-calm .bell-hint { color: var(--on-page); }
+
+.mala-page { display: grid; justify-items: center; gap: 14px; text-align: center; }
+.mala-stage { position: relative; width: min(88vw, 340px); aspect-ratio: 340 / 360; touch-action: none; -webkit-user-select: none; user-select: none; cursor: grab; border-radius: 24px; }
+.mala-stage:focus-visible { outline: 4px solid var(--c-yellow); outline-offset: 2px; }
+.mala-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.mala-string { fill: #fffcf4; stroke: #111; stroke-width: 3; }
+.bead { fill: #fff; stroke: #111; stroke-width: 1.6; transition: fill .15s; }
+.bead.counted { fill: var(--c-lime); }
+.bead.now { fill: var(--c-yellow); stroke-width: 2.2; }
+.bead.guru { fill: var(--c-orange); stroke-width: 2.5; }
+.tassel { fill: none; stroke: #111; stroke-width: 2.5; stroke-linecap: round; }
+.mala-pointer { fill: #111; }
+.mala-count { position: absolute; left: 50%; top: calc(190 / 360 * 100%); transform: translate(-50%, -50%); display: grid; justify-items: center; pointer-events: none; color: #111; }
+.mala-count b { font-size: 3.4rem; line-height: 1; }
+.mala-count span { font-size: 1.1rem; font-weight: 700; }
+.mala-count small { margin-top: 6px; font-size: .8rem; max-width: 9em; }
+.mala-stage.done .mala-svg { animation: mala-glow 1.4s ease-out; }
+@keyframes mala-glow { 0% { transform: scale(1); } 30% { transform: scale(1.04) rotate(2deg); } 60% { transform: scale(.99) rotate(-1deg); } 100% { transform: none; } }
+.mala-done { width: 100%; display: grid; gap: 12px; animation: bell-line-in .5s ease-out; }
+.mala-done .row { align-items: center; gap: 12px; text-align: left; }
+.mala-tools { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; }
+#view-calm .mala-page .bell-hint { color: var(--on-page); }
+@media (prefers-reduced-motion: reduce) {
+  .mala-stage.done .mala-svg { animation: none; }
+}
+/* A calm-down space: no reminder cards or floating buttons here (they come back on other tabs). */
+body[data-view="calm"] .alerts, body[data-view="calm"] .fab, body[data-view="calm"] .fab-magic { display: none !important; }
