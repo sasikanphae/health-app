@@ -97,13 +97,14 @@ function editDay(key) {
 // ---------- toast with undo ----------
 let toastTimer;
 let undoFn = null;
-function toast(msg, undo) {
+function toast(msg, undo, { label = 'เลิกทำ', ms } = {}) {
   $('#toast-text').textContent = msg;
   undoFn = undo ?? null;
   $('#toast-undo').hidden = !undo;
+  $('#toast-undo').textContent = label;
   $('#toast').classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(hideToast, undo ? 4500 : 2400);
+  toastTimer = setTimeout(hideToast, ms ?? (undo ? 4500 : 2400));
 }
 function hideToast() {
   $('#toast').classList.remove('show');
@@ -3905,10 +3906,26 @@ if (params.has('r') && state.profile) {
 try {
   const sw = location.protocol !== 'file:' ? navigator.serviceWorker : null;
   if (sw) {
-    sw.register('sw.js').then(() => sw.ready).then((reg) => {
+    // updateViaCache 'none': the browser checks sw.js itself on every load.
+    sw.register('sw.js', { updateViaCache: 'none' }).then(() => sw.ready).then((reg) => {
       swReg = reg;
       push.start();
+      // An installed app is often resumed rather than reopened: look for a new version then too.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {});
+      });
     }).catch(() => {});
+    // A new version took over: reload quietly if the app is in the background,
+    // otherwise offer it (never yank the screen away mid-task).
+    let hadController = !!sw.controller;
+    sw.addEventListener('controllerchange', () => {
+      if (!hadController) {
+        hadController = true; // first install, nothing old on screen
+        return;
+      }
+      if (document.visibilityState === 'hidden') location.reload();
+      else toast('มีเวอร์ชันใหม่ของแอปแล้ว', () => location.reload(), { label: 'โหลดเลย', ms: 12000 });
+    });
     sw.addEventListener('message', (e) => {
       if (e.data?.kind === 'reminder') handleReminderAction(e.data);
       if (e.data?.kind === 'push-refresh') tick(); // a push arrived while the app is open: show it as a card

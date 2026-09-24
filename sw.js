@@ -1,5 +1,5 @@
 // Offline support (network first, cache fallback) and notification button handling.
-const CACHE = 'health-app-v16';
+const CACHE = 'health-app-v17';
 const ASSETS = [
   './',
   'index.html',
@@ -78,8 +78,14 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
   if (url.origin !== location.origin && !FONT_HOSTS.includes(url.hostname)) return;
+  // Same-origin files are always revalidated with the server (a cheap 304 when
+  // unchanged): GitHub Pages lets browsers reuse files for 10 minutes, which
+  // kept phones on the old version after an update.
+  const net = url.origin === location.origin
+    ? fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' })
+    : fetch(e.request);
   e.respondWith(
-    fetch(e.request)
+    net
       .then((res) => {
         if (res.ok || res.type === 'opaque') {
           const copy = res.clone();
