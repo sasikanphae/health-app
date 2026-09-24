@@ -42,6 +42,7 @@ export function defaultState() {
       whyMutedUntil: null,
       whyAskedOn: null,
       inboxAuto: true, // file clear inbox items straight away (off = always check first)
+      assist: {}, // Phase 2B switches: { magic, autoArrange, whatNow, reschedule, context } (missing = on)
       gymPlace: 'gym', // which place a gym day happens at
       homePlace: 'home', // which place a home workout happens at
       reminders: [

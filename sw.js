@@ -1,5 +1,5 @@
 // Offline support (network first, cache fallback) and notification button handling.
-const CACHE = 'health-app-v10';
+const CACHE = 'health-app-v11';
 const ASSETS = [
   './',
   'index.html',
@@ -24,6 +24,10 @@ const ASSETS = [
   'js/memory.js',
   'js/why.js',
   'js/assistant-view.js',
+  'js/suggest.js',
+  'js/reschedule.js',
+  'js/context.js',
+  'js/magic-view.js',
   'js/meals.js',
   'js/planner.js',
   'js/store.js',

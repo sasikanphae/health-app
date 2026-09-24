@@ -333,7 +333,7 @@ export function createLife(ctx) {
     return items;
   }
 
-  function timelineItem(it, isNow) {
+  function timelineItem(it, isNow, why = '') {
     const cls = `tl${it.done ? ' done' : ''}${isNow ? ' now' : ''}`;
     let ic;
     let title;
@@ -366,6 +366,7 @@ export function createLife(ctx) {
           ${tick}
         </div>
         ${actions ? `<div class="tl-actions">${actions}</div>` : ''}
+        ${why}
       </div></li>`;
   }
 

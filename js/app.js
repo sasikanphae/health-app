@@ -1,5 +1,5 @@
 import {
-  dateKey, parseKey, addDays, emptyDay, readiness, dueReminders, SLEEP_HOURS, LEVELS,
+  dateKey, parseKey, addDays, emptyDay, readiness, dueReminders, reminderState, SLEEP_HOURS, LEVELS,
 } from './health.js';
 import {
   GOALS, SLOTS, ACTIVITIES, FOCUS, INTENSITY, planWeek, gymSessionToday, sessionItems,
@@ -21,6 +21,9 @@ import {
 import { createInbox } from './inbox-view.js';
 import { createAssistant } from './assistant-view.js';
 import { preferredWorkoutTime, avoidedMenus, busyWeekdays, hasRule } from './memory.js';
+import { createMagic } from './magic-view.js';
+import { freeWindow, workoutSuccess } from './suggest.js';
+import { contextReminders } from './context.js';
 import {
   resolveItems, playableSubstitutes, canDo, allExercises, filterLibrary, EQUIPMENT, EQUIP_GROUPS, needsText,
 } from './equipment.js';
@@ -593,6 +596,10 @@ function renderSheet() {
     exercise: renderExercise,
     arrange: renderArrange,
     memory: assistant.renderMemory,
+    whatnow: magic.renderWhatNow,
+    reschedule: magic.renderReschedule,
+    healthday: magic.renderHealthDay,
+    moneyday: magic.renderMoneyDay,
     retime: assistant.renderRetime,
     equip: renderEquip,
     wrapped: renderWrapped,
@@ -1142,11 +1149,51 @@ function itemTitle(it, t, meals) {
 
 const candidatesForDinner = (t) => candidates(t.p.food, 'd');
 
+// "ทำไม?": why each item sits where it is, in plain words.
+function explainItem(it, t) {
+  const moved = t.day.arranged?.changes?.find((c) => c.id === it.id && c.to === it.time);
+  if (it.life === 'event') {
+    const e = it.ev;
+    if (moved) return `แมวย้ายมา ${it.time} น. เพราะ${moved.reason}`;
+    if (e.kind === 'appt') return e.time ? 'เป็นเวลานัดที่เธอใส่ไว้ แมวไม่ขยับนัดหมายเด็ดขาด' : 'นัดวันนี้ ไม่ได้ใส่เวลาไว้';
+    return e.time ? 'เป็นเวลาที่เธอตั้งไว้เอง' : 'ยังไม่มีเวลา กด "จัดการให้หน่อย" แมวจะหาช่วงที่ว่างให้';
+  }
+  if (it.life === 'bill') return 'ครบกำหนดจ่ายแล้ว ทำตอนไหนของวันก็ได้';
+  if (moved) return `ฉันย้ายมาไว้ ${it.time} น. เพราะ${moved.reason}`;
+  if (it.id === 'workout') {
+    const min = Number(it.time.slice(0, 2)) * 60 + Number(it.time.slice(3));
+    const fixed = dayItems(t).filter((i) => i.life === 'event' && i.ev.time).map((i) => ({ label: i.ev.title, time: i.ev.time, dur: EVENT_MINUTES[i.ev.kind] ?? 30 }));
+    const free = freeWindow(min, fixed).minutes >= (WORKOUT_MINUTES[t.session?.activity] ?? 45);
+    const why = [
+      free ? 'เธอว่างช่วงนี้' : null,
+      workoutSuccess(state.days, t.key, min).text,
+      `เป็นช่วง${SLOTS[t.p.slot]?.label ?? ''}ที่เธอเลือกไว้`,
+    ].filter(Boolean);
+    const adj = t.session?.adjusted && ADJUST_TEXT[t.session.adjusted] ? ` · ${ADJUST_TEXT[t.session.adjusted]}` : '';
+    return `ฉันจัด${sessionTitle(t.session)}ไว้ ${it.time} น. เพราะ${why.join(' และ')}${adj}`;
+  }
+  if (it.slot) return `เวลามื้อปกติ ขยับตามเวลาออกกำลังกาย · เมนู${DAY_TYPE_LABEL[mealDayType(t.session)] ?? ''}${avoidedMenus(assistant.active(), MENUS).length ? ' และเลี่ยงเมนูที่เธอไม่ชอบ' : ''}`;
+  if (it.id === 'checkin') return 'เช็กอินตอนเช้าช่วยให้แมวรู้ว่าวันนี้ควรหนักหรือเบา';
+  if (it.id === 'relax') return 'พักสั้นๆ ช่วงบ่าย ช่วยไม่ให้หมดแรงตอนเย็น';
+  if (it.id === 'winddown') return `วางมือถือเวลานี้ จะได้นอนราว 7–8 ชม. ก่อนเช้า`;
+  if (it.id === 'rest') return 'วันพักตามตาราง สลับหนัก-เบา-พัก ให้กล้ามเนื้อได้ซ่อม';
+  if (it.id === 'special') return 'วันพิเศษ ลองอะไรใหม่ๆ กันเบื่อ';
+  return '';
+}
+
+function whyBlock(it, t) {
+  const id = it.id;
+  const open = ui.whyItem === id;
+  return `<div class="why-row"><button class="why-link" data-act="whyItem" data-id="${esc(id)}" aria-expanded="${open}">ทำไม?</button>
+    ${open ? `<p class="why-text small">${esc(explainItem(it, t))}</p>` : ''}</div>`;
+}
+
 const timeGreeting = (hour) => (hour < 5 ? 'ดึกแล้วนะ' : hour < 11 ? 'อรุณสวัสดิ์' : hour < 16 ? 'สวัสดีตอนบ่าย' : hour < 20 ? 'สวัสดีตอนเย็น' : 'ใกล้เวลาพักแล้ว');
 const isNight = (hour) => hour >= 20 || hour < 4;
 const learning = () => state.settings.learn !== false;
 
 function renderToday() {
+  autoArrange(computeToday());
   const t = computeToday();
   const { meals } = mealsFor(t.key, t.session);
   const items = dayItems(t);
@@ -1194,18 +1241,19 @@ function renderToday() {
       <div class="pbar" aria-hidden="true"><div style="width:${pct}%"></div></div>
     </div>
 
+    ${magic.on('whatNow') ? `<button class="btn primary big block what-now" data-act="whatNow">${icon('sparkle', { size: 20 })}วันนี้ทำอะไรดี?</button>` : ''}
     <div class="main-actions">
-      <button class="btn primary" data-act="arrange">${icon('shuffle', { size: 18 })}จัดวันนี้ให้ฉัน</button>
+      <button class="btn ${magic.on('whatNow') ? 'soft' : 'primary'}" data-act="arrange">${icon('shuffle', { size: 18 })}จัดวันนี้ให้ฉัน</button>
       ${t.day.easy ? '<button class="btn soft" data-act="easyOff">กลับเป็นวันปกติ</button>'
     : `<button class="btn soft" data-act="easyOn">${icon('cloud', { size: 18 })}วันนี้ไม่ไหว</button>`}
     </div>
-    ${arranged ? `<button class="arranged-note" data-act="arrange">${icon('check', { size: 16 })}แมวจัดวันนี้ให้แล้ว ${arranged.changes.length ? `· ปรับ ${arranged.changes.length} อย่าง` : ''} · ดูเหตุผล</button>` : ''}
+    ${arranged ? `<button class="arranged-note" data-act="arrange">${icon('check', { size: 16 })}แมวจัดวันนี้ให้${arranged.auto ? 'อัตโนมัติ' : ''}แล้ว ${arranged.changes.length ? `· ปรับ ${arranged.changes.length} อย่าง` : ''} · ดูเหตุผล</button>` : ''}
 
     ${inbox.bar()}
     ${easyCard(t, pers, goal)}
     ${suggestionCard(t, { hour, night, items, meals })}
 
-    <ol class="timeline">${items.map((it, i) => (it.life ? life.timelineItem(it, i === nowIdx) : timelineItem(it, t, meals, i === nowIdx))).join('')}</ol>
+    <ol class="timeline">${items.map((it, i) => (it.life ? life.timelineItem(it, i === nowIdx, whyBlock(it, t)) : timelineItem(it, t, meals, i === nowIdx))).join('')}</ol>
 
     <div class="card quick">
     <div class="water">
@@ -1259,6 +1307,8 @@ function suggestionCard(t, { hour, night, items, meals }) {
   if (night) return nightCard(t, items, meals);
   if (t.holy) return holyCard(t);
   if (t.day.easy) return '';
+  const slip = magic.rescheduleCard(t); // a task that slipped: still important? → a new time
+  if (slip) return slip;
   const asked = assistant.suggestion(t); // "ครั้งนี้เพราะอะไร?" or a new memory to confirm
   if (asked) return asked;
   const patterns = assistant.patterns(t);
@@ -1412,6 +1462,129 @@ function memoryContext() {
   return { prefTime: pref?.time ?? null, prefText: pref?.text ?? null, meetingMove: hasRule(mem, 'meeting-move') };
 }
 
+// Arrange today now and remember it; returns { changes, undo }.
+function arrangeApply({ auto = false } = {}) {
+  const t = computeToday();
+  const { items, ctx } = arrangeInputs(t);
+  const r = arrangeDay(items, ctx);
+  const day = editDay(t.key);
+  const before = day.arranged ? structuredClone(day.arranged) : null;
+  day.arranged = { ...r, at: Date.now(), auto, beforeCheckin: !t.day.checkin };
+  if (!auto) delete day.arrangeOff;
+  save();
+  return {
+    changes: r.changes.length,
+    undo: () => {
+      const d = editDay(t.key);
+      if (before) d.arranged = before;
+      else delete d.arranged;
+      d.arrangeOff = true;
+      save();
+      render();
+    },
+  };
+}
+
+// Automatic arranging: once a day (again once after the check-in), never
+// after the user went back to their own plan. Can be turned off.
+function autoArrange(t) {
+  if (!magic.on('autoArrange') || !state.profile || t.day.arrangeOff) return;
+  const hour = new Date().getHours();
+  if (hour >= 21 || (!t.day.checkin && hour < 9)) return;
+  const a = t.day.arranged;
+  if (!a || (a.auto && a.beforeCheckin && t.day.checkin)) arrangeApply({ auto: true });
+}
+
+// Right now, in one object: free time, energy, what's pending (for
+// "วันนี้ทำอะไรดี?" and contextual reminders).
+function nowContext(t) {
+  const d = new Date();
+  const nowMin = d.getHours() * 60 + d.getMinutes();
+  const items = dayItems(t);
+  // Only times the user set are fixed; slots the cat suggested for errands are not.
+  const fixed = items.filter((i) => i.life === 'event' && i.ev.time && !i.done)
+    .map((i) => ({ label: i.ev.title, time: i.ev.time, dur: EVENT_MINUTES[i.ev.kind] ?? 30 }));
+  const free = freeWindow(nowMin, fixed);
+  const c = t.day.checkin;
+  const w = items.find((i) => i.id === 'workout');
+  const pref = preferredWorkoutTime(assistant.active());
+  const wMin = w ? Number(w.time.slice(0, 2)) * 60 + Number(w.time.slice(3)) : null;
+  const soon = state.events.filter((e) => e.kind === 'appt' && !e.done && e.date === t.key && e.time)
+    .find((e) => { const m = Number(e.time.slice(0, 2)) * 60 + Number(e.time.slice(3)); return m > nowMin && m - nowMin <= 120; });
+  return {
+    nowMin, free, energy: c?.answers?.energy ?? null, level: c?.level ?? null, stress: c?.answers?.stress ?? null, easy: t.day.easy,
+    checkinDone: !!c,
+    apptSoon: soon ? { title: soon.title, time: soon.time, leave: APPT_LEAVE[soon.apptType] ?? '' } : null,
+    billsDue: state.bills.filter((b) => { const cy = billCycle(b, t.key); return !cy.paid && (cy.status === 'today' || cy.status === 'overdue'); }).map((b) => ({ id: b.id, title: b.title })),
+    meals: items.filter((i) => i.slot).map((i) => ({ slot: i.slot, label: MEAL_SLOTS[i.slot].label, time: i.time, done: i.done })),
+    workout: w ? {
+      pending: !w.done && !!t.session && t.session.intensity !== 'rest', dur: WORKOUT_MINUTES[t.session?.activity] ?? 45,
+      title: sessionTitle(t.session), planTime: w.time, prefTime: pref?.time ?? null, success: workoutSuccess(state.days, t.key, wMin).text,
+    } : null,
+    water: { have: t.day.water, goal: waterGoalToday(t) },
+    tasks: items.filter((i) => i.life === 'event' && !i.done && !i.ev.time && i.ev.kind !== 'appt')
+      .map((i) => ({ id: i.ev.id, title: i.ev.title, work: i.ev.kind === 'work', urgent: !!i.ev.urgent, dur: i.ev.kind === 'work' ? 45 : 20 })),
+    relaxDone: !!t.day.ticks.relax,
+  };
+}
+const APPT_LEAVE = { doctor: 'doctor', checkup: 'doctor', vaccine: 'doctor', dentist: 'doctor' };
+
+// "จัดสุขภาพวันนี้": everything health, in one short list.
+function healthSummary(t) {
+  const items = dayItems(t);
+  const w = items.find((i) => i.id === 'workout');
+  const goal = waterGoalToday(t);
+  const d = new Date();
+  const nowMin = d.getHours() * 60 + d.getMinutes();
+  const expected = Math.round(goal * Math.min(1, Math.max(0, (nowMin - 420) / 840)));
+  const wd = items.find((i) => i.id === 'winddown');
+  const { meals } = mealsFor(t.key, t.session);
+  return {
+    mood: t.day.checkin ? LEVELS[t.day.checkin.level].mood : 'normal',
+    checkin: t.day.checkin ? { score: t.day.checkin.score, label: LEVELS[t.day.checkin.level].label } : null,
+    workout: w && t.session ? { title: sessionTitle(t.session), time: w.time, done: w.done, why: explainItem(w, t) } : null,
+    water: { have: t.day.water, goal, note: t.day.water >= goal ? 'ครบแล้ว เก่งมาก' : t.day.water >= expected ? 'ตามทันแล้ว จิบต่อเรื่อยๆ' : `เวลานี้ควรราว ${expected} แก้ว จิบเพิ่มสักแก้วนะ` },
+    steps: stepGoalToday(t),
+    meals: items.filter((i) => i.slot && !i.done && Number(i.time.slice(0, 2)) * 60 + Number(i.time.slice(3)) >= nowMin - 60).map((i) => `${MEAL_SLOTS[i.slot].label} ${i.time}${meals[i.slot] ? ` ${meals[i.slot].name}` : ''}`),
+    bed: wd?.time ?? '21:30',
+    bedWhy: explainItem(wd ?? { id: 'winddown' }, t),
+  };
+}
+
+// "จัดเมนู": no dish twice within three days (disliked ones are already avoided).
+function refreshMenus() {
+  const t = computeToday();
+  const snapshot = t.plan.week.filter((d) => d.key >= t.key).map((d) => [d.key, { ...getDay(d.key).mealSwaps }]);
+  let swapped = 0;
+  for (const wd of t.plan.week.filter((d) => d.key >= t.key)) {
+    const session = wd.isToday ? t.session : wd.session;
+    for (let guard = 0; guard < 4; guard++) {
+      const { meals } = mealsFor(wd.key, session);
+      const recent = new Set();
+      for (let i = 1; i <= 3; i++) {
+        const k = addDays(wd.key, -i);
+        for (const m of Object.values(getDay(k).meals)) if (m.menuId) recent.add(m.menuId);
+        if (k >= t.key) for (const m of Object.values(mealsFor(k, t.plan.week.find((x) => x.key === k)?.session).meals)) if (m) recent.add(m.id);
+      }
+      const clash = Object.entries(meals).find(([slot, m]) => m && recent.has(m.id) && !getDay(wd.key).meals[slot]);
+      if (!clash) break;
+      const day = editDay(wd.key);
+      day.mealSwaps[clash[0]] = (day.mealSwaps[clash[0]] ?? 0) + 1;
+      swapped++;
+    }
+  }
+  save();
+  render();
+  return {
+    swapped,
+    undo: () => {
+      for (const [k, swaps] of snapshot) editDay(k).mealSwaps = swaps;
+      save();
+      render();
+    },
+  };
+}
+
 function renderArrange() {
   const t = computeToday();
   const { items, ctx } = arrangeInputs(t);
@@ -1445,8 +1618,8 @@ function renderArrange() {
     </div>
     <div class="sheet-foot">
       <button class="btn primary big block" data-act="arrApply">ใช้แผนนี้</button>
-      ${t.day.arranged ? '<button class="btn ghost block" data-act="arrReset">กลับเป็นแผนเดิม</button>'
-    : '<button class="btn ghost block" data-act="arrCancel">ไม่เป็นไร ใช้แบบเดิม</button>'}
+      <button class="btn ghost block" data-act="arrCancel">${t.day.arranged ? 'ปิด ไม่เปลี่ยนอะไร' : 'ไม่เป็นไร ใช้แบบเดิม'}</button>
+      ${t.day.arranged ? '<button class="btn ghost block" data-act="arrReset">กลับเป็นแผนเดิมของฉัน</button>' : ''}
     </div>`;
 }
 
@@ -1606,6 +1779,7 @@ function timelineItem(it, t, meals, isNow) {
         ${tickBtn}
       </div>
       ${actions ? `<div class="tl-actions">${actions}</div>` : ''}
+      ${whyBlock(it, t)}
     </div></li>`;
 }
 
@@ -2187,6 +2361,19 @@ function renderSettings() {
     </div>
 
     <div class="card">
+      <h2>ผู้ช่วยของแมว</h2>
+      <p class="small muted">ทุกอย่างคิดในเครื่องนี้ ปิดแยกกันได้ ไม่บังคับ</p>
+      ${[
+    ['magic', 'ปุ่ม "จัดการให้หน่อย"', 'ทำงานตามหน้าที่เปิดอยู่: จัดวันนี้ สุขภาพ เมนู รายจ่าย หรือสิ่งที่ค้าง'],
+    ['autoArrange', 'จัดวันนี้ให้อัตโนมัติ', 'หลังเช็กอิน (หรือหลัง 9 โมง) แมวจัดให้เอง เลิกทำได้เสมอ'],
+    ['whatNow', 'ปุ่ม "วันนี้ทำอะไรดี?"', 'เสนอแค่ 3 อย่างที่ทำได้จริงตอนนี้'],
+    ['reschedule', 'ช่วยหาเวลาใหม่ให้งานที่พลาด', 'ถามว่ายังสำคัญไหม แล้วหาช่วงที่ว่างให้'],
+    ['context', 'เตือนตามจังหวะชีวิต', 'เตือนดื่มน้ำและออกกำลังกายตอนที่ว่างจริง แทนเวลาตายตัว · ไม่ใช้ GPS'],
+  ].map(([k, label, sub]) => `<div class="rem-row"><span class="grow">${label}<br><span class="small muted">${sub}</span></span>
+        <label class="switch" aria-label="เปิด/ปิด ${label}"><input type="checkbox" data-act="assistToggle" data-k="${k}" ${magic.on(k) ? 'checked' : ''}><span></span></label></div>`).join('')}
+    </div>
+
+    <div class="card">
       <h2>โหมดเดินทาง</h2>
       <div class="rem-row"><span class="grow">กำลังเดินทาง ไม่มียิมหรือครัว<br><span class="small muted">ใช้ท่าที่ไม่ต้องใช้เครื่อง เมนูซื้อง่าย และเป้าเบาลง</span></span>
         <label class="switch" aria-label="เปิด/ปิดโหมดเดินทาง"><input type="checkbox" data-act="travelToggle" ${travelOn() ? 'checked' : ''}><span></span></label></div>
@@ -2313,40 +2500,99 @@ function currentDue(now = Date.now()) {
     waterGoal: waterGoalToday(t),
     workoutPending: !!t.session && !t.done && !t.day.easy,
     repeatMs,
-  }).map((d) => ({ id: d.reminder.id, at: d.at, notify: d.notify, reminder: d.reminder }));
+  }).map((d) => ({ id: d.reminder.id, at: d.at, notify: d.notify, reminder: d.reminder }))
+    // Contextual reminders replace the fixed water/workout times (check-in stays at its time).
+    .filter((d) => !contextOn() || !['water', 'workout'].includes(d.reminder.type));
   const lifeItems = lifeDue({ events: state.events, bills: state.bills, today: t.key, now, log, repeatMs }).filter(life.alive);
-  return [...health, ...lifeItems].sort((a, b) => a.at - b.at);
+  return [...health, ...lifeItems, ...contextDue(t, now, log, repeatMs)].sort((a, b) => a.at - b.at);
 }
 
-// Text and main button for any due item.
+const contextOn = () => magic.on('context');
+function contextDue(t, now, log, repeatMs) {
+  if (!contextOn() || !state.profile) return [];
+  const sentToday = Object.entries(log).filter(([k, v]) => k.startsWith('cx:') && v.notifiedAt).length;
+  // Most important first (workout, water, task): it gets the latest time, so it's the card shown.
+  return contextReminders({ ...nowContext(t), sentToday }).map((c, i) => {
+    const st = reminderState(log[c.id], now, repeatMs);
+    return st ? { id: c.id, at: now - i, notify: st.notify, cx: c, kind: 'cx', ref: c.ref ?? null } : null;
+  }).filter(Boolean);
+}
+
+// Text, the three buttons (done / snooze / open) and the reasons for any due item.
 function dueInfo(d) {
+  const repeat = (state.reminderLog[todayKey()]?.[d.id]?.count ?? 0) >= 2 ? ['ยังไม่ได้ทำ เลยเตือนอีกครั้งตามที่ตั้งเตือนซ้ำไว้'] : [];
+  const today = () => ({ attrs: 'data-act="tab" data-view="today"' });
+  if (d.cx) {
+    const c = d.cx;
+    const done = { water: { label: 'ดื่มแล้ว', attrs: 'data-act="water" data-n="1"' }, workout: { label: 'เสร็จแล้ว', attrs: 'data-act="workoutTick"' }, task: { label: 'เสร็จแล้ว', attrs: `data-act="evTick" data-id="${c.ref}"` } }[c.sub];
+    const open = { water: today(), workout: { attrs: 'data-act="startFromAlert"' }, task: { attrs: `data-act="eventEdit" data-id="${c.ref}"` } }[c.sub];
+    return { text: c.text, time: 'ตอนนี้', done, open, why: [...c.why, ...repeat] };
+  }
   if (d.reminder) {
     const r = d.reminder;
+    const t = computeToday();
+    const detail = {
+      water: `วันนี้ดื่มไป ${t.day.water}/${waterGoalToday(t)} แก้ว`,
+      checkin: 'วันนี้ยังไม่ได้เช็กอิน',
+      workout: 'วันนี้มีแผนออกกำลังกายและยังไม่ได้ทำ',
+    }[r.type];
     return {
       text: REMINDER_TEXT[r.type].text,
       time: `${r.time} น.`,
-      main: {
-        water: '<button class="btn primary big block" data-act="water" data-n="1">ดื่มแล้ว +1 แก้ว</button>',
-        checkin: '<button class="btn primary big block" data-act="checkin">เริ่มเช็กอิน</button>',
-        workout: '<button class="btn lotus big block" data-act="startFromAlert">ไปกันเลย</button>',
+      done: {
+        water: { label: 'ดื่มแล้ว', attrs: 'data-act="water" data-n="1"' },
+        checkin: { label: 'เช็กอินเลย', attrs: 'data-act="checkin"' },
+        workout: { label: 'เสร็จแล้ว', attrs: 'data-act="workoutTick"' },
       }[r.type],
+      open: r.type === 'workout' ? { attrs: 'data-act="startFromAlert"' } : r.type === 'checkin' ? { attrs: 'data-act="checkin"' } : today(),
+      why: [`ตั้งเวลาเตือน${REMINDER_TEXT[r.type].label}ไว้ ${r.time} น.`, detail, ...repeat, contextOn() ? null : 'เปิด "เตือนตามจังหวะชีวิต" ในตั้งค่าได้ แมวจะเตือนตอนที่ว่างจริงแทน'].filter(Boolean),
     };
   }
-  return life.alertInfo(d);
+  const info = life.alertInfo(d);
+  if (d.kind === 'bill') {
+    const b = state.bills.find((x) => x.id === d.ref);
+    return {
+      ...info, done: { label: 'จ่ายแล้ว', attrs: `data-act="billPaid" data-id="${d.ref}"` }, open: { attrs: 'data-act="tab" data-view="life"' },
+      why: [`${b?.title ?? 'บิล'}ครบกำหนดทุกวันที่ ${b?.day}`, d.daysLeft > 0 ? `เตือนล่วงหน้า ${b?.lead ?? 3} วัน` : 'ยังไม่ได้กดจ่ายแล้ว', ...repeat],
+    };
+  }
+  const e = state.events.find((x) => x.id === d.ref);
+  const lead = e?.lead ?? { appt: 60, work: 15, personal: 15 }[e?.kind] ?? 15;
+  return {
+    ...info,
+    done: d.stage === 'tomorrow' ? { label: 'รับทราบ', attrs: `data-act="skip" data-id="${esc(d.id)}"` } : { label: 'เสร็จแล้ว', attrs: `data-act="evTick" data-id="${d.ref}"` },
+    open: d.stage === 'tomorrow' && APPT_LEAVE[e?.apptType] ? { attrs: `data-act="leaveOpen" data-id="${APPT_LEAVE[e.apptType]}"` } : { attrs: `data-act="eventEdit" data-id="${d.ref}"` },
+    why: [d.stage === 'tomorrow' ? 'พรุ่งนี้มีนัด แมวเตือนคืนก่อนตอนหนึ่งทุ่ม' : d.stage === 'today' ? 'วันนี้มีนัด ไม่ได้ใส่เวลา แมวเตือนตอนเช้า' : `"${e?.title ?? ''}" เวลา ${e?.time} น. เตือนล่วงหน้า ${lead} นาทีตามที่ตั้งไว้`, ...repeat],
+  };
 }
 
 function alertHtml(d, more) {
   const x = dueInfo(d);
+  const open = ui.alertWhy === d.id;
   return `<div class="alert" role="alert">
     <div class="row between"><span class="alert-title">${esc(x.text)}</span><span class="muted small nowrap">${x.time}</span></div>
-    ${x.main ? `<div style="margin-top:8px">${x.main}</div>` : ''}
-    <div class="actions">
-      <button class="btn soft" data-act="snooze" data-id="${esc(d.id)}" data-min="10">เลื่อน 10 นาที</button>
-      <button class="btn soft" data-act="snooze" data-id="${esc(d.id)}" data-min="60">1 ชั่วโมง</button>
-      <button class="btn ghost" data-act="skip" data-id="${esc(d.id)}">ข้ามครั้งนี้</button>
+    <div class="alert-actions">
+      ${x.done ? `<button class="btn primary" ${x.done.attrs}>${x.done.label}</button>` : ''}
+      <button class="btn soft" data-act="snooze" data-id="${esc(d.id)}" data-min="smart">เลื่อน</button>
+      <button class="btn soft" ${x.open.attrs}>เปิดดู</button>
     </div>
+    <div class="row between alert-foot">
+      <button class="link small" data-act="alertWhy" data-id="${esc(d.id)}" aria-expanded="${open}">ทำไมถึงเห็นข้อความนี้</button>
+      <button class="link small muted" data-act="skip" data-id="${esc(d.id)}">ไม่ต้องเตือนวันนี้</button>
+    </div>
+    ${open ? `<ul class="soft-list small alert-why">${x.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
     ${more ? `<p class="small muted alert-more">ยังมีอีก ${more} เรื่องรออยู่ในรายการวันนี้</p>` : ''}
   </div>`;
+}
+
+// "เลื่อน": after the current appointment if there is one, else half an hour.
+function smartSnoozeMin() {
+  const c = nowContext(computeToday());
+  if (c.free.minutes === 0 && c.free.until) {
+    const [h, m] = c.free.until.split(':').map(Number);
+    return Math.max(10, h * 60 + m - c.nowMin + 10);
+  }
+  return 30;
 }
 
 // Only the most recent reminder gets a card, so opening the app late never
@@ -2391,19 +2637,20 @@ function skip(id) {
 
 function notify(d) {
   if (document.visibilityState === 'visible') {
-    navigator.vibrate?.(200);
+    if (ui.userActed) navigator.vibrate?.(200); // browsers ignore vibration before the first tap
     return;
   }
   if (!swReg || !('Notification' in window) || Notification.permission !== 'granted') return;
   const x = dueInfo(d);
-  const type = d.reminder?.type ?? d.kind;
-  const actions = [{ action: 'snooze', title: 'เลื่อน 10 นาที' }];
+  const type = d.cx ? `cx-${d.cx.sub}` : d.reminder?.type ?? d.kind;
+  const actions = [{ action: 'snooze', title: 'เลื่อน' }];
+  if (d.cx) actions.unshift({ action: 'done', title: d.cx.sub === 'water' ? 'ดื่มแล้ว' : 'เสร็จแล้ว' });
   if (type === 'water') actions.unshift({ action: 'water', title: 'ดื่มแล้ว +1' });
   if (type === 'bill') actions.unshift({ action: 'done', title: 'จ่ายแล้ว' });
   if (type === 'event' && d.stage !== 'tomorrow') actions.unshift({ action: 'done', title: 'ทำแล้ว' });
   const repeat = state.settings.repeatMin;
   swReg.showNotification(x.text, {
-    body: repeat ? `ถ้าปิดไปโดยยังไม่ได้ทำ แมวจะเตือนอีกครั้งใน ${repeatLabel(repeat)}` : 'แตะเพื่อเปิด หรือกดเลื่อนเตือนได้',
+    body: `เพราะ${x.why[0] ?? 'ถึงเวลาแล้ว'}${repeat ? ` · ถ้าปิดไปโดยยังไม่ได้ทำ จะเตือนอีกครั้งใน ${repeatLabel(repeat)}` : ''}`,
     tag: d.id,
     renotify: true,
     icon: 'icons/icon.svg',
@@ -2429,7 +2676,9 @@ function tick() {
   let changed = false;
   for (const d of due) {
     if (!d.notify) continue;
-    reminderEntry(d.id).notifiedAt = Date.now();
+    const entry = reminderEntry(d.id);
+    entry.notifiedAt = Date.now();
+    entry.count = (entry.count ?? 0) + 1;
     notify(d);
     changed = true;
   }
@@ -2463,7 +2712,12 @@ function checkRewards() {
 }
 
 function handleReminderAction({ id, type, action, ref }) {
-  if (action === 'snooze') return snooze(id, 10);
+  if (action === 'snooze') return snooze(id, 30);
+  if (type?.startsWith('cx-') && action === 'done') {
+    if (type === 'cx-water') return addWater(1);
+    if (type === 'cx-workout') return completeWorkout(computeToday().session);
+    if (type === 'cx-task') return life.actions.evTick({ id: ref });
+  }
   if (action === 'water') return addWater(1);
   // Notification swiped away without doing it: ask again after the repeat time.
   if (action === 'dismissed') {
@@ -2507,6 +2761,7 @@ function render() {
   life.renderLife();
   renderAlerts();
   checkRewards();
+  magic.updateFab();
 }
 
 const life = createLife({
@@ -2521,6 +2776,12 @@ const life = createLife({
 const assistant = createAssistant({
   state, ui, esc, save, render, renderSheet, toast, pushSheet, popSheet, sheetTop, todayKey, editDay, newId, sfx,
   computeToday, profile, daysSince,
+});
+
+const magic = createMagic({
+  state, ui, esc, save, render, renderSheet, toast, pushSheet, popSheet, sheetTop, todayKey, editDay, newId,
+  computeToday, nowContext, arrangeApply, healthSummary, refreshMenus,
+  busyWeekdays: () => busyWeekdays(assistant.active()),
 });
 
 const inbox = createInbox({
@@ -2724,15 +2985,11 @@ const actions = {
     toast(on ? 'เปิดโหมดเดินทาง: ไม่ต้องใช้ยิม เมนูซื้อง่าย เป้าเบาลง' : 'ปิดโหมดเดินทางแล้ว กลับบ้านปลอดภัยนะ');
   },
   arrApply: () => {
-    const t = computeToday();
-    const { items, ctx } = arrangeInputs(t);
-    const r = arrangeDay(items, ctx);
-    editDay(t.key).arranged = { ...r, at: Date.now() };
+    const r = arrangeApply();
     popSheet();
-    save();
     render();
     sfx.bell();
-    toast(r.changes.length ? `จัดให้แล้ว ปรับ ${r.changes.length} อย่าง` : 'แผนเดิมลงตัวอยู่แล้ว');
+    toast(r.changes ? `จัดให้แล้ว ปรับ ${r.changes} อย่าง` : 'แผนเดิมลงตัวอยู่แล้ว', r.undo);
   },
   arrCancel: () => {
     const s = topSheet();
@@ -2743,7 +3000,9 @@ const actions = {
     render();
   },
   arrReset: () => {
-    delete editDay(todayKey()).arranged;
+    const day = editDay(todayKey());
+    delete day.arranged;
+    day.arrangeOff = true; // the user chose their own plan: no automatic arranging today
     save();
     popSheet();
     render();
@@ -2860,7 +3119,11 @@ const actions = {
   },
   startSession: () => startSession(),
   startFromAlert: () => startSession({ gym: computeToday().session?.activity === 'gym' }),
-  snooze: (d) => snooze(d.id, Number(d.min)),
+  snooze: (d) => snooze(d.id, d.min === 'smart' ? smartSnoozeMin() : Number(d.min)),
+  alertWhy: (d) => {
+    ui.alertWhy = ui.alertWhy === d.id ? null : d.id;
+    renderAlerts();
+  },
   skip: (d) => skip(d.id),
 
   // workout
@@ -3251,14 +3514,21 @@ const forms = {
   },
 };
 
-Object.assign(actions, life.actions, inbox.actions, assistant.actions);
+Object.assign(actions, life.actions, inbox.actions, assistant.actions, magic.actions, {
+  whyItem: (d) => {
+    ui.whyItem = ui.whyItem === d.id ? null : d.id;
+    renderToday();
+  },
+});
 Object.assign(forms, life.forms, inbox.forms, assistant.forms);
 
 document.addEventListener('click', (e) => {
   ui.userActed = true;
   const el = e.target.closest('[data-act]');
   if (!el || el.disabled) return;
+  if (el.dataset.close && ui.sheets.length) popSheet();
   actions[el.dataset.act]?.(el.dataset, el, e);
+  magic.updateFab();
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#quicknote').hidden) life.closeNote();
@@ -3304,6 +3574,7 @@ document.addEventListener('visibilitychange', () => {
 const TAB_ICONS = { today: 'lotus', week: 'calendar', food: 'bowl', gym: 'dumbbell', life: 'list', me: 'user' };
 for (const b of document.querySelectorAll('.tabs [data-view]')) b.insertAdjacentHTML('afterbegin', icon(TAB_ICONS[b.dataset.view]));
 $('#fab-note').innerHTML = icon('pen');
+$('#fab-magic').innerHTML = `${icon('sparkle', { size: 18 })}<span>จัดการให้หน่อย</span>`;
 $('#quicknote [data-act=mic]').innerHTML = `${icon('mic', { size: 18 })}พูด`;
 if (useHistory) history.replaceState(null, '');
 assistant.refresh();
