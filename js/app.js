@@ -29,6 +29,7 @@ import {
 } from './equipment.js';
 import { createLife } from './life-view.js';
 import { createPush } from './push-view.js';
+import { createBell } from './bell.js';
 import { DAILY_QUOTES, getTodayQuote, getRandomQuote } from './daily-quotes.js';
 import { pushCandidates, pushSnapshot } from './push-plan.js';
 import {
@@ -630,8 +631,10 @@ function renderSheet() {
   el.hidden = !s;
   document.body.style.overflow = s ? 'hidden' : '';
   document.body.classList.toggle('sheet-open', !!s);
+  if (s?.type !== 'bell') mindful.release(); // back to normal iOS audio (silent switch respected)
   if (!s) return;
   $('#sheet-body').innerHTML = {
+    bell: mindful.render,
     onboard: renderOnboard,
     checkin: renderCheckin,
     session: renderSession,
@@ -1309,6 +1312,7 @@ function renderToday() {
   $('#view-today').innerHTML = `
     <div class="page-title today-title">
       <h1 class="hello">${timeGreeting(hour)}${name ? ` ${esc(name)}` : ''}</h1>
+      <button class="bell-mini" data-act="bellOpen" aria-label="ระฆังเตือนสติ" title="ระฆังเตือนสติ">${icon('bell', { size: 26 })}</button>
       <span class="cat-circle">${mascot(mood, { size: 76 })}</span>
     </div>
     <div class="bubble">${msg}</div>
@@ -3013,6 +3017,8 @@ const magic = createMagic({
   busyWeekdays: () => busyWeekdays(assistant.active()),
 });
 
+const mindful = createBell({ ui, sheetTop, mascot, pushSheet });
+
 const push = createPush({
   state, ui, esc, save, toast, pushSheet, popSheet, sheetTop, mascot, renderSettings: () => renderSettings(),
   swReg: () => swReg, jobs: pushJobs, snapshot: pushSnap,
@@ -3793,7 +3799,7 @@ const forms = {
   },
 };
 
-Object.assign(actions, life.actions, inbox.actions, assistant.actions, magic.actions, push.actions, {
+Object.assign(actions, life.actions, inbox.actions, assistant.actions, magic.actions, push.actions, mindful.actions, {
   whyItem: (d) => {
     ui.whyItem = ui.whyItem === d.id ? null : d.id;
     renderToday();
