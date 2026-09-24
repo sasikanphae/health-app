@@ -1,0 +1,19 @@
+name = "meow-push"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+# Sends due reminders every minute.
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "meow-push"
+database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+
+[vars]
+# The web app's address, e.g. "https://sasikanphae.github.io" (comma-separate several). "*" allows any.
+ALLOWED_ORIGINS = "https://sasikanphae.github.io"
+VAPID_SUBJECT = "mailto:you@example.com"
+# Secrets (set with `npx wrangler secret put ...`, never commit them):
+#   VAPID_PUBLIC_KEY, VAPID_PRIVATE_JWK

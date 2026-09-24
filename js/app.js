@@ -28,6 +28,8 @@ import {
   resolveItems, playableSubstitutes, canDo, allExercises, filterLibrary, EQUIPMENT, EQUIP_GROUPS, needsText,
 } from './equipment.js';
 import { createLife } from './life-view.js';
+import { createPush } from './push-view.js';
+import { pushCandidates, pushSnapshot } from './push-plan.js';
 import {
   ACTIVITY_LEVELS, WEIGHT_GOALS, SEXES, LIMITS, bmi, bmiInfo, calorieTarget, waterGoal, stepGoal,
   logWeight, latestWeight, weightTrend, isValidBody, defaultWeightGoal, daysSince,
@@ -62,6 +64,7 @@ const ui = {
   photoUrls: {},
 };
 let swReg = null;
+let pushRef = null; // set once the push module exists (save() runs before that)
 
 // ---------- helpers ----------
 const $ = (sel) => document.querySelector(sel);
@@ -80,6 +83,7 @@ function save() {
   } catch {
     toast('บันทึกไม่สำเร็จ พื้นที่ในเครื่องอาจเต็ม');
   }
+  pushRef?.soon(); // keep the push server's reminder list current
 }
 
 const getDay = (key) => state.days[key] ?? emptyDay();
@@ -637,6 +641,7 @@ function renderSheet() {
     reschedule: magic.renderReschedule,
     healthday: magic.renderHealthDay,
     moneyday: magic.renderMoneyDay,
+    pushAsk: () => push.renderAsk(),
     retime: assistant.renderRetime,
     equip: renderEquip,
     wrapped: renderWrapped,
@@ -2505,12 +2510,13 @@ function renderSettings() {
         <button class="btn primary sm">เพิ่ม</button></form>
     </div>
 
+    ${push.card()}
     <div class="card">
       <h2>การแจ้งเตือน</h2>
       <p class="small">${permText}</p>
       ${perm === 'default' ? '<button class="btn primary block" data-act="notifyEnable">เปิดการแจ้งเตือน</button>' : ''}
       ${perm === 'granted' ? '<button class="btn soft block" data-act="notifyTest">ลองส่งแจ้งเตือน</button>' : ''}
-      <p class="muted small">เด้งเตือนขณะที่แอปเปิดอยู่หรือพับไว้ ถ้าปิดแอปไป รายการที่ถึงเวลาจะรออยู่ด้านบนตอนเปิดครั้งถัดไป</p>
+      <p class="muted small">${push.on() ? 'ตอนปิดแอป เซิร์ฟเวอร์จะส่งแจ้งเตือนให้ (ตั้งค่าในการ์ดด้านบน) · ตอนเปิดแอป รายการที่ถึงเวลาจะขึ้นเป็นการ์ดด้านบน' : 'เด้งเตือนขณะที่แอปเปิดอยู่หรือพับไว้ ถ้าปิดแอปไป รายการที่ถึงเวลาจะรออยู่ด้านบนตอนเปิดครั้งถัดไป · อยากให้เด้งแม้ปิดแอป เปิด "แจ้งเตือนแม้ปิดแอป" ด้านบน'}</p>
       <label class="rem-row"><span class="grow">เตือนซ้ำ ถ้าปิดแจ้งเตือนไปโดยยังไม่ได้ทำ<br><span class="small muted">ใช้กับทุกการเตือน รวมถึงนัดหมายและบิล</span></span>
         <select data-change="repeatMin" aria-label="เตือนซ้ำหลังจาก" style="width:auto">${REPEAT_OPTIONS.map((m) =>
           `<option value="${m}" ${(s.repeatMin || 0) === m ? 'selected' : ''}>${m ? `อีก ${repeatLabel(m)}` : 'ไม่เตือนซ้ำ'}</option>`).join('')}</select></label>
@@ -2748,6 +2754,7 @@ function notify(d) {
     return;
   }
   if (!swReg || !('Notification' in window) || Notification.permission !== 'granted') return;
+  if (push.covers(dueCat(d))) return; // the push server sends this one (no double buzz)
   const x = dueInfo(d);
   const type = d.cx ? `cx-${d.cx.sub}` : d.reminder?.type ?? d.kind;
   const actions = [{ action: 'snooze', title: 'เลื่อน' }];
@@ -2764,6 +2771,78 @@ function notify(d) {
     data: { id: d.id, type, ref: d.ref ?? null },
     actions,
   }).catch(() => {});
+}
+
+// Which "แจ้งเตือนแม้ปิดแอป" category a due item belongs to.
+function dueCat(d) {
+  if (d.cx) return d.cx.sub;
+  if (d.reminder) return d.reminder.type;
+  if (d.kind === 'bill') return 'bill';
+  return state.events.find((e) => e.id === d.ref)?.kind === 'appt' ? 'appt' : 'task';
+}
+
+// ---------- push (app closed): what to upload ----------
+const PUSH_GENERIC = { appt: 'มีนัดหมายใกล้ถึงเวลา', task: 'มีงานที่ตั้งเวลาไว้', bill: 'มีบิลใกล้ครบกำหนด' };
+const PUSH_HEALTH_BODY = { checkin: 'ตอบ 5 ข้อ แมวจะรู้ว่าวันนี้ควรหนักหรือเบา', water: 'จิบสักแก้ว แล้วแตะ "ดื่มแล้ว" ได้เลย', workout: 'เบาๆ ก็นับแล้ว ไม่ไหวก็เลื่อนได้' };
+
+function pushStatus(t) {
+  return {
+    checkin: !!t.day.checkin, water: t.day.water, waterGoal: waterGoalToday(t),
+    workoutPending: !!t.session && !t.done && !t.day.easy, easy: t.day.easy,
+  };
+}
+
+function pushNote(c, discreet) {
+  let title;
+  let body;
+  let type;
+  if (c.kind === 'health') {
+    type = c.type;
+    title = REMINDER_TEXT[c.type].text;
+    body = PUSH_HEALTH_BODY[c.type];
+  } else if (c.kind === 'cx') {
+    type = `cx-${c.sub}`;
+    if (c.sub === 'workout') {
+      title = `ตอนนี้ว่างราว ${c.freeMin} นาที และวันนี้ยังไม่ได้ออกกำลังกาย อยากเริ่มเลยไหม?`;
+      body = c.until ? `ไม่มีนัดจนถึง ${c.until}${c.untilLabel ? ` (${c.untilLabel})` : ''}` : 'ช่วงนี้ไม่มีอะไรในตาราง';
+    } else {
+      title = 'จิบน้ำหน่อยนะ'; // the service worker writes the real numbers when it arrives
+    }
+  } else {
+    type = c.kind;
+    const x = dueInfo(c);
+    title = x.text;
+    body = x.why[0] ?? '';
+  }
+  if (discreet && PUSH_GENERIC[c.cat]) {
+    title = PUSH_GENERIC[c.cat];
+    body = 'แตะเพื่อดูรายละเอียดในแอป';
+  }
+  if (c.repeatN) body = `${body} · ยังไม่ได้ทำ เลยเตือนอีกครั้งตามที่ตั้งเตือนซ้ำไว้`;
+  const actions = [];
+  if (type === 'water') actions.push({ action: 'water', title: 'ดื่มแล้ว +1' });
+  else if (c.kind === 'cx') actions.push({ action: 'done', title: c.sub === 'water' ? 'ดื่มแล้ว' : 'เสร็จแล้ว' });
+  else if (type === 'bill') actions.push({ action: 'done', title: 'จ่ายแล้ว' });
+  else if (type === 'event' && c.stage !== 'tomorrow') actions.push({ action: 'done', title: 'ทำแล้ว' });
+  actions.push({ action: 'snooze', title: 'เลื่อน' });
+  return { title, body, actions, data: { id: c.base, type, ref: c.ref ?? null } };
+}
+
+function pushJobs(cfg) {
+  const t = computeToday();
+  const cx = nowContext(t);
+  const log = state.reminderLog[t.key] ?? {};
+  return pushCandidates({
+    now: Date.now(), today: t.key, cats: cfg.cats, events: state.events.filter((e) => !e.dropped), bills: state.bills,
+    reminders: state.settings.reminders, log, repeatMin: state.settings.repeatMin, status: pushStatus(t),
+    contextOn: contextOn(), workout: cx.workout?.pending ? cx.workout : null,
+    sentToday: Object.entries(log).filter(([k, v]) => k.startsWith('cx:') && v.notifiedAt).length,
+  }).map((c) => ({ id: c.id, at: c.at, check: c.check, sub: c.sub === 'water' ? 'water' : null, note: pushNote(c, cfg.discreet) }));
+}
+
+function pushSnap() {
+  const t = computeToday();
+  return pushSnapshot({ today: t.key, events: state.events, bills: state.bills, status: pushStatus(t), log: state.reminderLog[t.key] ?? {} });
 }
 
 const REPEAT_OPTIONS = [0, 15, 30, 60, 120];
@@ -2891,6 +2970,12 @@ const magic = createMagic({
   computeToday, nowContext, arrangeApply, healthSummary, refreshMenus,
   busyWeekdays: () => busyWeekdays(assistant.active()),
 });
+
+const push = createPush({
+  state, ui, esc, save, toast, pushSheet, popSheet, sheetTop, mascot, renderSettings: () => renderSettings(),
+  swReg: () => swReg, jobs: pushJobs, snapshot: pushSnap,
+});
+pushRef = push;
 
 const inbox = createInbox({
   assistant,
@@ -3498,6 +3583,7 @@ function replaceState(next) {
 }
 
 const changes = {
+  ...push.changes,
   travelUntil: (el) => {
     state.settings.travel = { ...state.settings.travel, until: el.value || null };
     save();
@@ -3646,7 +3732,7 @@ const forms = {
   },
 };
 
-Object.assign(actions, life.actions, inbox.actions, assistant.actions, magic.actions, {
+Object.assign(actions, life.actions, inbox.actions, assistant.actions, magic.actions, push.actions, {
   whyItem: (d) => {
     ui.whyItem = ui.whyItem === d.id ? null : d.id;
     renderToday();
@@ -3745,16 +3831,20 @@ photos.all().then((all) => {
 const params = new URLSearchParams(location.search);
 if (params.has('r') && state.profile) {
   if (useHistory) history.replaceState(null, '', location.pathname);
-  handleReminderAction({ id: params.get('r'), type: params.get('t'), action: params.get('a') });
+  handleReminderAction({ id: params.get('r'), type: params.get('t'), action: params.get('a'), ref: params.get('f') });
 }
 
 // Sandboxed frames throw on merely reading navigator.serviceWorker.
 try {
   const sw = location.protocol !== 'file:' ? navigator.serviceWorker : null;
   if (sw) {
-    sw.register('sw.js').then(() => sw.ready).then((reg) => { swReg = reg; }).catch(() => {});
+    sw.register('sw.js').then(() => sw.ready).then((reg) => {
+      swReg = reg;
+      push.start();
+    }).catch(() => {});
     sw.addEventListener('message', (e) => {
       if (e.data?.kind === 'reminder') handleReminderAction(e.data);
+      if (e.data?.kind === 'push-refresh') tick(); // a push arrived while the app is open: show it as a card
     });
   }
 } catch { /* no offline support or notification buttons here; everything else works */ }

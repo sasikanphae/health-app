@@ -1,0 +1,13 @@
+{
+  "name": "meow-push",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "keys": "node scripts/gen-vapid.mjs",
+    "db:init": "wrangler d1 execute meow-push --remote --file=schema.sql",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
