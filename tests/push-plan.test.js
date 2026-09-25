@@ -115,3 +115,17 @@ test('a contextual water check already shown in the app does not silence the lat
   const jobs = pushCandidates(base({ now: timeOn(today, '12:00'), contextOn: true, log: { 'cx:water': { notifiedAt: timeOn(today, '11:00') } } }));
   assert.deepEqual(jobs.filter((j) => j.sub === 'water' && j.date === today).map((j) => j.id), [`cx:water:15:00@${today}`, `cx:water:18:00@${today}`]);
 });
+
+test('"every N hours" water: one push per slot (even with contextual mode on), no pace checks, no repeats', async () => {
+  const { waterIntervalReminders } = await import('../js/health.js');
+  const slots = waterIntervalReminders({ every: 120, from: '08:00', to: '20:00' });
+  const jobs = pushCandidates(base({
+    now: timeOn(today, '09:00'), contextOn: true, waterInterval: true, repeatMin: 60,
+    reminders: [...reminders.filter((r) => r.type !== 'water'), ...slots],
+  }));
+  const todays = jobs.filter((j) => j.date === today && j.cat === 'water');
+  assert.deepEqual(todays.map((j) => j.id), ['10:00', '12:00', '14:00', '16:00', '18:00', '20:00'].map((t) => `r-wi-${t.replace(':', '')}@${today}`));
+  assert.ok(todays.every((j) => j.sub === 'water-every' && j.check[0] === `water:${today}`));
+  assert.ok(!jobs.some((j) => j.id.startsWith('cx:water')));
+  assert.ok(!jobs.some((j) => j.id.startsWith('r-wi-') && j.id.includes('#')));
+});

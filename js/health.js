@@ -133,7 +133,8 @@ function reminderSatisfied(r, at, ctx) {
   const { day, waterGoal, workoutPending } = ctx;
   switch (r.type) {
     case 'checkin': return day.checkin != null;
-    case 'water': return day.water >= waterGoal || day.waterAt.some((t) => t >= at);
+    // grace: a glass shortly before the reminder already counts (interval mode: 20 min)
+    case 'water': return day.water >= waterGoal || day.waterAt.some((t) => t >= at - (r.grace ?? 0) * 60_000);
     case 'workout': return !workoutPending;
     default: return true;
   }
@@ -169,9 +170,28 @@ export function dueReminders({ reminders, day, key, now, log = {}, waterGoal, wo
 
   const due = [];
   for (const { reminder, at } of latest.values()) {
-    const st = reminderState(log[reminder.id], now, repeatMs);
+    const st = reminderState(log[reminder.id], now, reminder.noRepeat ? 0 : repeatMs);
     if (!st || reminderSatisfied(reminder, at, ctx)) continue;
     due.push({ reminder, at, notify: st.notify });
   }
   return due.sort((a, b) => a.at - b.at);
+}
+
+// "เตือนดื่มน้ำทุก N ชั่วโมง": one water reminder per slot between from and to.
+// Reminds even when on pace; stops once the day's goal is met; a glass within
+// the 20 minutes before a slot counts, so no nag right after drinking. Each slot
+// is its own reminder, so they never repeat (the next slot is the repeat).
+export const WATER_EVERY = [0, 60, 90, 120]; // 0 = smart mode (only when behind)
+export function waterIntervalReminders({ every = 0, from = '08:00', to = '20:00' } = {}) {
+  if (!every) return [];
+  const toMin = (t) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+  const out = [];
+  for (let m = toMin(from); m <= toMin(to); m += every) {
+    const time = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    out.push({ id: `r-wi-${time.replace(':', '')}`, type: 'water', time, enabled: true, grace: 20, noRepeat: true, interval: true });
+  }
+  return out;
 }

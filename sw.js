@@ -1,5 +1,5 @@
 // Offline support (network first, cache fallback) and notification button handling.
-const CACHE = 'health-app-v19';
+const CACHE = 'health-app-v20';
 const ASSETS = [
   './',
   'index.html',
@@ -183,6 +183,11 @@ async function onPush(data) {
   try {
     note = await unseal(data.p);
   } catch { /* key gone (site data cleared): a neutral text below */ }
+  if (data.s === 'water-every') { // "every N hours": remind unless the goal is met or a glass was just logged
+    const w = snap?.date === date ? snap.water : { have: 0, goal: snap?.water?.goal ?? 8 };
+    if ((w.goal && w.have >= w.goal) || (w.lastAt && w.lastAt >= (data.at ?? Date.now()) - 20 * 60_000)) resolved = true;
+    note = { ...(note ?? {}), title: 'ได้เวลาจิบน้ำแล้ว', body: `วันนี้ดื่มไป ${w.have}/${w.goal} แก้ว · เตือนตามรอบที่ตั้งไว้` };
+  }
   if (data.s === 'water') {
     const w = snap?.date === date ? snap.water : { have: 0, goal: snap?.water?.goal ?? 8 };
     const c = waterCheck(w, data.at ?? Date.now());

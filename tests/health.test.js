@@ -75,3 +75,23 @@ test('dueReminders: snooze hides until time, then notifies again', () => {
 test('dueReminders: skipping the latest does not resurface an earlier one', () => {
   assert.deepEqual(due({ ...emptyDay(), checkin: {} }, at('15:00'), { w2: { skipped: true } }), []);
 });
+
+test('water every N hours: slots in the window, reminds when on pace, not right after a glass, stops at the goal', async () => {
+  const { waterIntervalReminders, dueReminders, timeOn: at } = await import('../js/health.js');
+  const slots = waterIntervalReminders({ every: 90, from: '08:00', to: '20:00' });
+  assert.deepEqual(slots.map((r) => r.time), ['08:00', '09:30', '11:00', '12:30', '14:00', '15:30', '17:00', '18:30', '20:00']);
+  assert.deepEqual(waterIntervalReminders({ every: 0 }), []);
+  const key = '2026-09-25';
+  const day = (water, waterAt = []) => ({ water, waterAt, checkin: null });
+  const due = (d, now) => dueReminders({ reminders: slots, day: d, key, now: at(key, now), log: {}, waterGoal: 8, workoutPending: false, repeatMs: 3600_000 });
+  // 11:05, drank 4 glasses by 10:00 (ahead of pace): still reminded
+  assert.equal(due(day(4, [at(key, '10:00')]), '11:05')[0]?.reminder.time, '11:00');
+  // drank at 10:45 (within 20 min before 11:00): that slot is already covered
+  assert.equal(due(day(4, [at(key, '10:45')]), '11:05').length, 0);
+  // goal reached: quiet for the rest of the day
+  assert.equal(due(day(8, [at(key, '09:00')]), '15:40').length, 0);
+  // shown once already: no repeat of the same slot (the next slot is the repeat)
+  const log = { 'r-wi-1100': { notifiedAt: at(key, '11:00') } };
+  const r = dueReminders({ reminders: slots, day: day(4, []), key, now: at(key, '12:10'), log, waterGoal: 8, workoutPending: false, repeatMs: 3600_000 });
+  assert.equal(r[0].notify, false);
+});

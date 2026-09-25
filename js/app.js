@@ -1,5 +1,6 @@
 import {
   dateKey, parseKey, addDays, emptyDay, readiness, dueReminders, reminderState, SLEEP_HOURS, LEVELS,
+  waterIntervalReminders, WATER_EVERY,
 } from './health.js';
 import {
   GOALS, SLOTS, ACTIVITIES, FOCUS, INTENSITY, planWeek, gymSessionToday, sessionItems,
@@ -2578,6 +2579,16 @@ function renderSettings() {
       <label class="rem-row"><span class="grow">เตือนซ้ำ ถ้าปิดแจ้งเตือนไปโดยยังไม่ได้ทำ<br><span class="small muted">ใช้กับทุกการเตือน รวมถึงนัดหมายและบิล</span></span>
         <select data-change="repeatMin" aria-label="เตือนซ้ำหลังจาก" style="width:auto">${REPEAT_OPTIONS.map((m) =>
           `<option value="${m}" ${(s.repeatMin || 0) === m ? 'selected' : ''}>${m ? `อีก ${repeatLabel(m)}` : 'ไม่เตือนซ้ำ'}</option>`).join('')}</select></label>
+      <label class="rem-row"><span class="tl-emoji">${icon('drop')}</span><span class="grow">เตือนดื่มน้ำ<br><span class="small muted">${waterEvery().every
+    ? `ทุก ${everyLabel(waterEvery().every)} แม้ดื่มตามทัน · หยุดเมื่อครบเป้า · ดื่มก่อนถึงรอบไม่เกิน 20 นาทีจะข้ามรอบนั้น`
+    : 'เตือนเฉพาะตอนที่ดื่มน้อยกว่าที่ควร ณ เวลานั้น'}</span></span>
+        <select data-change="waterEvery" aria-label="รูปแบบเตือนดื่มน้ำ" style="width:auto">${WATER_EVERY.map((m) =>
+          `<option value="${m}" ${waterEvery().every === m ? 'selected' : ''}>${m ? `ทุก ${everyLabel(m)}` : 'ตามจังหวะ'}</option>`).join('')}</select></label>
+      ${waterEvery().every ? `<div class="rem-row"><span class="grow small">ช่วงเวลาที่เตือน</span>
+        <input type="time" value="${waterEvery().from}" data-change="waterFrom" aria-label="เริ่มเตือนดื่มน้ำ" style="width:auto">
+        <span class="small">ถึง</span>
+        <input type="time" value="${waterEvery().to}" data-change="waterTo" aria-label="เลิกเตือนดื่มน้ำ" style="width:auto"></div>
+        <p class="small muted">เวลาเตือนดื่มน้ำที่ตั้งไว้ด้านล่างจะพักไว้ระหว่างใช้โหมดนี้</p>` : ''}
       ${reminders.map((r) => `<div class="rem-row">
         <span class="tl-emoji">${icon(REMINDER_TEXT[r.type].icon)}</span>
         <label class="grow rem-time"><span class="small muted">${REMINDER_TEXT[r.type].label}</span>
@@ -2658,12 +2669,21 @@ async function wipePhotos() {
 // ---------- reminders ----------
 // Health reminders and life ones (appointments, to-dos, bills) share the same
 // snooze / skip / repeat log. Each item: { id, at, notify, reminder? | kind+ref }.
+// Reminders in effect: the user's list, with water replaced by "every N hours" slots when chosen.
+const waterEvery = () => state.settings.waterEvery ?? { every: 0, from: '08:00', to: '20:00' };
+function activeReminders() {
+  const w = waterEvery();
+  if (!w.every) return state.settings.reminders;
+  return [...state.settings.reminders.filter((r) => r.type !== 'water'), ...waterIntervalReminders(w)];
+}
+const everyLabel = (m) => (m % 60 ? `${m / 60} ชม.`.replace('.5 ชม.', ' ชม. ครึ่ง') : `${m / 60} ชม.`);
+
 function currentDue(now = Date.now()) {
   const t = computeToday();
   const log = state.reminderLog[t.key] ?? {};
   const repeatMs = (state.settings.repeatMin || 0) * 60_000;
   const health = dueReminders({
-    reminders: state.settings.reminders,
+    reminders: activeReminders(),
     day: t.day,
     key: t.key,
     now,
@@ -2673,7 +2693,8 @@ function currentDue(now = Date.now()) {
     repeatMs,
   }).map((d) => ({ id: d.reminder.id, at: d.at, notify: d.notify, reminder: d.reminder }))
     // Contextual reminders replace the fixed water/workout times (check-in stays at its time).
-    .filter((d) => !contextOn() || !['water', 'workout'].includes(d.reminder.type));
+    // ("every N hours" water stays: the user asked for it explicitly.)
+    .filter((d) => !contextOn() || d.reminder.interval || !['water', 'workout'].includes(d.reminder.type));
   const lifeItems = lifeDue({ events: state.events, bills: state.bills, today: t.key, now, log, repeatMs }).filter(life.alive);
   return [...health, ...lifeItems, ...contextDue(t, now, log, repeatMs)].sort((a, b) => a.at - b.at);
 }
@@ -2683,7 +2704,7 @@ function contextDue(t, now, log, repeatMs) {
   if (!contextOn() || !state.profile) return [];
   const sentToday = Object.entries(log).filter(([k, v]) => k.startsWith('cx:') && v.notifiedAt).length;
   // Most important first (workout, water, task): it gets the latest time, so it's the card shown.
-  return contextReminders({ ...nowContext(t), sentToday }).map((c, i) => {
+  return contextReminders({ ...nowContext(t), sentToday }).filter((c) => !(c.sub === 'water' && waterEvery().every)).map((c, i) => {
     const st = reminderState(log[c.id], now, repeatMs);
     return st ? { id: c.id, at: now - i, notify: st.notify, cx: c, kind: 'cx', ref: c.ref ?? null } : null;
   }).filter(Boolean);
@@ -2716,7 +2737,9 @@ function dueInfo(d) {
         workout: { label: 'เสร็จแล้ว', attrs: 'data-act="workoutTick"' },
       }[r.type],
       open: r.type === 'workout' ? { attrs: 'data-act="startFromAlert"' } : r.type === 'checkin' ? { attrs: 'data-act="checkin"' } : today(),
-      why: [`ตั้งเวลาเตือน${REMINDER_TEXT[r.type].label}ไว้ ${r.time} น.`, detail, ...repeat, contextOn() ? null : 'เปิด "เตือนตามจังหวะชีวิต" ในตั้งค่าได้ แมวจะเตือนตอนที่ว่างจริงแทน'].filter(Boolean),
+      why: r.interval
+        ? [`ตั้งให้เตือนดื่มน้ำทุก ${everyLabel(waterEvery().every)} (${waterEvery().from}–${waterEvery().to} น.)`, detail, 'ดื่มครบเป้าแล้วจะหยุดเตือนเอง · เปลี่ยนได้ในตั้งค่า › การแจ้งเตือน']
+        : [`ตั้งเวลาเตือน${REMINDER_TEXT[r.type].label}ไว้ ${r.time} น.`, detail, ...repeat, contextOn() ? null : 'เปิด "เตือนตามจังหวะชีวิต" ในตั้งค่าได้ แมวจะเตือนตอนที่ว่างจริงแทน'].filter(Boolean),
     };
   }
   const info = life.alertInfo(d);
@@ -2845,7 +2868,7 @@ const PUSH_HEALTH_BODY = { checkin: 'ตอบ 5 ข้อ แมวจะรู
 
 function pushStatus(t) {
   return {
-    checkin: !!t.day.checkin, water: t.day.water, waterGoal: waterGoalToday(t),
+    checkin: !!t.day.checkin, water: t.day.water, waterGoal: waterGoalToday(t), waterLastAt: t.day.waterAt.at(-1) ?? null,
     workoutPending: !!t.session && !t.done && !t.day.easy, easy: t.day.easy,
   };
 }
@@ -2892,10 +2915,10 @@ function pushJobs(cfg) {
   const log = state.reminderLog[t.key] ?? {};
   return pushCandidates({
     now: Date.now(), today: t.key, cats: cfg.cats, events: state.events.filter((e) => !e.dropped), bills: state.bills,
-    reminders: state.settings.reminders, log, repeatMin: state.settings.repeatMin, status: pushStatus(t),
+    reminders: activeReminders(), log, repeatMin: state.settings.repeatMin, status: pushStatus(t), waterInterval: !!waterEvery().every,
     contextOn: contextOn(), workout: cx.workout?.pending ? cx.workout : null,
     sentToday: Object.entries(log).filter(([k, v]) => k.startsWith('cx:') && v.notifiedAt).length,
-  }).map((c) => ({ id: c.id, at: c.at, check: c.check, sub: c.sub === 'water' ? 'water' : null, note: pushNote(c, cfg.discreet) }));
+  }).map((c) => ({ id: c.id, at: c.at, check: c.check, sub: ['water', 'water-every'].includes(c.sub) ? c.sub : null, note: pushNote(c, cfg.discreet) }));
 }
 
 function pushSnap() {
@@ -3672,6 +3695,27 @@ const changes = {
     state.settings.travel = { ...state.settings.travel, until: el.value || null };
     save();
     render();
+  },
+  waterEvery: (el) => {
+    state.settings.waterEvery = { ...waterEvery(), every: Number(el.value) };
+    save();
+    renderSettings();
+    renderAlerts();
+    toast(state.settings.waterEvery.every ? `จะเตือนดื่มน้ำทุก ${everyLabel(state.settings.waterEvery.every)} ${state.settings.waterEvery.from}–${state.settings.waterEvery.to} น.` : 'กลับไปเตือนตามจังหวะ (เฉพาะตอนดื่มน้อย)');
+  },
+  waterFrom: (el) => {
+    if (!el.value) return;
+    const w = waterEvery();
+    state.settings.waterEvery = { ...w, from: el.value < w.to ? el.value : w.from };
+    save();
+    renderSettings();
+  },
+  waterTo: (el) => {
+    if (!el.value) return;
+    const w = waterEvery();
+    state.settings.waterEvery = { ...w, to: el.value > w.from ? el.value : w.to };
+    save();
+    renderSettings();
   },
   repeatMin: (el) => {
     state.settings.repeatMin = Number(el.value);

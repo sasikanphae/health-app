@@ -89,10 +89,11 @@ export function pushCandidates(ctx) {
     const d = addDays(today, i);
     for (const r of reminders) {
       if (!r.enabled || !cats[r.type]) continue;
-      if (r.type !== 'checkin' && ctx.contextOn) continue; // contextual ones below replace them
+      // contextual ones below replace fixed water/workout times — except "every N hours" water
+      if (r.type !== 'checkin' && ctx.contextOn && !r.interval) continue;
       if (r.type === 'workout' && (i > 0 || !status.workoutPending || status.easy)) continue;
       if (i === 0 && r.type === 'checkin' && status.checkin) continue;
-      add({ id: `${r.id}@${d}`, base: r.id, date: d, at: timeOn(d, r.time), kind: 'health', type: r.type, cat: r.type, reminder: r, repeat: true, check: [`${r.type}:${d}`] });
+      add({ id: `${r.id}@${d}`, base: r.id, date: d, at: timeOn(d, r.time), kind: 'health', type: r.type, cat: r.type, reminder: r, repeat: !r.noRepeat, check: [`${r.type}:${d}`], ...(r.interval ? { sub: 'water-every' } : {}) });
     }
   }
 
@@ -111,7 +112,7 @@ export function pushCandidates(ctx) {
         });
       }
     }
-    if (cats.water) {
+    if (cats.water && !ctx.waterInterval) { // "every N hours" mode replaces the pace checks
       for (let i = 0; i < HEALTH_DAYS; i++) {
         const d = addDays(today, i);
         for (const t of CX_WATER_TIMES) {
@@ -174,5 +175,5 @@ export function pushSnapshot({ today, events = [], bills = [], status = {}, log 
   if (!status.workoutPending) done.push(`workout:${today}`);
   if (status.waterGoal && status.water >= status.waterGoal) done.push(`water:${today}`);
   const skipped = Object.entries(log).filter(([, v]) => v.skipped).map(([k]) => `${k}@${today}`);
-  return { date: today, done, skipped, water: { have: status.water ?? 0, goal: status.waterGoal ?? 0 }, at: Date.now() };
+  return { date: today, done, skipped, water: { have: status.water ?? 0, goal: status.waterGoal ?? 0, lastAt: status.waterLastAt ?? null }, at: Date.now() };
 }
