@@ -30,6 +30,7 @@ import {
 import { createLife } from './life-view.js';
 import { createPush } from './push-view.js';
 import { createCalm } from './calm-view.js';
+import { emptyMerit } from './merit.js';
 import { DAILY_QUOTES, getTodayQuote, getRandomQuote } from './daily-quotes.js';
 import { pushCandidates, pushSnapshot } from './push-plan.js';
 import {
@@ -381,12 +382,22 @@ function addWater(delta) {
     day.waterAt.pop();
   } else return;
   day.waterMet = day.water >= goal;
+  // ทำบุญ: the day's water goal gives one เหรียญบุญ (credited once, kept even if a glass is undone).
+  const key = todayKey();
+  let coin = false;
+  if (day.waterMet) {
+    state.merit ??= emptyMerit(key);
+    if (!state.merit.earnedDays.includes(key)) {
+      state.merit.earnedDays.push(key);
+      coin = true;
+    }
+  }
   save();
   render();
   if (delta > 0) {
     if (day.water === goal) sfx.bell();
     else sfx.knock();
-    toast(day.water === goal ? `ครบ ${goal} แก้ว! น้ำบุญเต็มแก้ว` : `แก้วที่ ${day.water} แล้ว ${cheer()}`, () => addWater(-1));
+    toast(day.water === goal ? `ครบ ${goal} แก้ว! น้ำบุญเต็มแก้ว${coin ? ' · ได้เหรียญบุญ 1 เหรียญ' : ''}` : `แก้วที่ ${day.water} แล้ว ${cheer()}`, () => addWater(-1));
   }
 }
 
@@ -854,7 +865,9 @@ function renderQuote(s) {
 
 function finishCheckin(s) {
   const result = readiness(s.answers);
-  editDay(todayKey()).checkin = { answers: s.answers, ...result, at: Date.now() };
+  const day = editDay(todayKey());
+  // firstAt: the day's first check-in time (an early one opens ตักบาตร, even if edited later).
+  day.checkin = { answers: s.answers, ...result, at: Date.now(), firstAt: day.checkin?.firstAt ?? day.checkin?.at ?? Date.now() };
   save();
   sfx.bell();
   replaceSheet({ ...s, step: CHECKIN_STEPS.length });
@@ -3018,7 +3031,10 @@ const magic = createMagic({
   busyWeekdays: () => busyWeekdays(assistant.active()),
 });
 
-const calm = createCalm({ $, ui, mascot, pageTitle, showView: (v) => showView(v) });
+const calm = createCalm({
+  $, ui, state, mascot, pageTitle, icon, save, toast, sfx, todayKey, getDay,
+  showView: (v) => showView(v), render: () => render(), waterGoal: () => waterGoalToday(),
+});
 
 const push = createPush({
   state, ui, esc, save, toast, pushSheet, popSheet, sheetTop, mascot, renderSettings: () => renderSettings(),

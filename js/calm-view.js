@@ -2,6 +2,7 @@
 // A free space to cool down: no goals, no scores, nothing saved or tracked —
 // the bead count lives only while the app is open.
 import { createBell } from './bell.js';
+import { createMerit } from './merit-view.js';
 import { BEADS, ROUND_LINES, advance, angleOf, dragBeads, beadPos } from './mala.js';
 import { beadClick, blessing, haptic } from './sound.js';
 
@@ -12,6 +13,7 @@ const STEP_DEG = 360 / BEADS;
 export function createCalm(ctx) {
   const { $ } = ctx;
   const bell = createBell(ctx);
+  const merit = createMerit(ctx);
   const ui = { tab: 'bell', count: 0, done: false, line: 0, clicks: true, drag: null };
 
   // ---------- ลูกประคำ ----------
@@ -155,8 +157,9 @@ export function createCalm(ctx) {
       <div class="seg calm-seg" role="tablist" aria-label="เลือกวิธี">
         <button role="tab" data-act="calmTab" data-tab="bell" aria-selected="${ui.tab === 'bell'}">ระฆัง</button>
         <button role="tab" data-act="calmTab" data-tab="mala" aria-selected="${ui.tab === 'mala'}">ลูกประคำ</button>
+        <button role="tab" data-act="calmTab" data-tab="merit" aria-selected="${ui.tab === 'merit'}">ทำบุญ</button>
       </div>
-      ${ui.tab === 'bell' ? bell.panel() : malaPanel()}`;
+      ${{ bell: bell.panel, mala: malaPanel, merit: merit.panel }[ui.tab]()}`;
     if (ui.tab === 'mala') {
       markBeads();
       bindMala();
@@ -165,6 +168,7 @@ export function createCalm(ctx) {
 
   const actions = {
     ...bell.actions,
+    ...merit.actions,
     calmTab: (d) => {
       ui.tab = d.tab;
       render();

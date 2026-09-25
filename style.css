@@ -1073,3 +1073,61 @@ body[data-view="calm"] { --page: var(--page-calm); }
 }
 /* A calm-down space: no reminder cards or floating buttons here (they come back on other tabs). */
 body[data-view="calm"] .alerts, body[data-view="calm"] .fab, body[data-view="calm"] .fab-magic { display: none !important; }
+
+/* ---------- ทำบุญ ---------- */
+.merit-page { display: grid; gap: 14px; }
+.merit-h { margin: 0; font-size: 1.4rem; font-weight: 700; }
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.trio .card { margin: 0; padding: 12px 10px; display: grid; gap: 2px; align-content: start; min-height: 104px; }
+.trio .stat-big { font-size: 2rem; line-height: 1.05; }
+.trio .stat-big small { font-size: .8rem; font-family: var(--font); font-weight: 500; }
+.coin-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px; border: 2px solid var(--edge); border-radius: 999px; background: var(--c-yellow); font-size: 1.05rem; }
+.pond-card .btn .ic, .coin-pill .ic { flex: none; }
+.pond-stage { border: var(--bw) solid var(--edge); border-radius: 18px; background: #c8e26a; overflow: hidden; margin: 10px 0 8px; }
+.pond-svg { display: block; width: 100%; height: auto; }
+.pond-water { fill: #8acff0; stroke: #111; stroke-width: 4; }
+.pad circle { fill: #5fb35a; stroke: #111; stroke-width: 3; }
+.pad path { stroke: #c8e26a; stroke-width: 4; stroke-linecap: round; }
+.ripple-line { fill: none; stroke: #fffcf4; stroke-width: 3; stroke-linecap: round; opacity: .8; }
+.fish { transform-box: fill-box; transform-origin: center; animation: swim var(--dur, 10s) linear var(--delay, 0s) infinite; }
+@keyframes swim {
+  0% { transform: translate(70px, var(--y)) scaleX(1); }
+  46% { transform: translate(270px, calc(var(--y) + 8px)) scaleX(1); }
+  50% { transform: translate(270px, calc(var(--y) + 8px)) scaleX(-1); }
+  96% { transform: translate(70px, var(--y)) scaleX(-1); }
+  100% { transform: translate(70px, var(--y)) scaleX(1); }
+}
+.fish.eat > g { animation: fish-eat .5s ease-in-out 2; transform-box: fill-box; transform-origin: center; }
+@keyframes fish-eat { 50% { transform: scale(1.18); } }
+.pellet { fill: #f59e3b; stroke: #111; stroke-width: 1.5; animation: pellet-drop 1.1s ease-in forwards; }
+@keyframes pellet-drop { from { transform: translateY(-30px); opacity: 0; } 20% { opacity: 1; } to { transform: translateY(70px); opacity: 0; } }
+
+.alms-stage { position: relative; border: var(--bw) solid var(--edge); border-radius: 18px; overflow: hidden; margin: 10px 0 8px; }
+.alms-svg { display: block; width: 100%; height: auto; }
+.alms-sky { fill: #f7b79e; }
+.alms-sun { fill: #f6c85f; stroke: #111; stroke-width: 3; }
+.alms-ground { fill: #c8e26a; stroke: #111; stroke-width: 3; }
+.alms-bowl { fill: #b9a7f5; stroke: #111; stroke-width: 4; stroke-linejoin: round; }
+.alms-rim { stroke: #111; stroke-width: 5; stroke-linecap: round; }
+.alms-stand { fill: #111; opacity: .25; }
+.alms-rice circle { fill: #fffcf4; stroke: #111; stroke-width: 2.5; opacity: 0; }
+.alms-spark path { stroke: #111; stroke-width: 3; stroke-linecap: round; opacity: 0; }
+.alms-cat { position: absolute; left: 12px; bottom: 10px; width: 72px; height: 72px; border-radius: 50%; border: var(--bw) solid var(--edge); background: var(--c-yellow); overflow: hidden; }
+.alms-cat img { width: 100%; height: 100%; border: 0; }
+.alms-card.closed .alms-stage { filter: saturate(.35); }
+.alms-card.closed .alms-sun { transform: translateY(40px); }
+.alms-card.given .alms-rice circle { opacity: 1; transform: translateY(58px); }
+.alms-card.giving .alms-rice circle { animation: rice-drop .9s cubic-bezier(.4, 0, .7, 1) forwards; }
+.alms-card.giving .alms-rice circle:nth-child(2) { animation-delay: .15s; }
+.alms-card.giving .alms-rice circle:nth-child(3) { animation-delay: .3s; }
+.alms-card.giving .alms-pot { animation: pot-bounce .5s ease-out 1s; transform-box: fill-box; transform-origin: bottom center; }
+.alms-card.giving .alms-spark path { animation: spark .8s ease-out 1.1s forwards; }
+.alms-card.giving .alms-cat { animation: cat-startle .9s ease-out; }
+@keyframes rice-drop { from { opacity: 1; transform: translateY(0); } to { opacity: 1; transform: translateY(58px); } }
+@keyframes pot-bounce { 40% { transform: scale(1.06, .94); } 100% { transform: none; } }
+@keyframes spark { 0% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .fish { animation-duration: 40s; }
+  .alms-card.giving .alms-rice circle, .alms-card.giving .alms-pot, .pellet { animation-duration: .01s; }
+}
+#view-calm .merit-page .muted-page { color: var(--ink); opacity: .8; }
