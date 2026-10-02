@@ -84,7 +84,7 @@ export async function handle(req, env, deps = {}) {
     return json({ id, token }, 200, cors);
   }
 
-  if (url.pathname.startsWith('/shop/')) return handleShop(req, env, cors, json, now);
+  if (url.pathname.startsWith('/shop/')) return handleShop(req, env, cors, json, now, { fetch: deps.fetch, vapid: vapidOf(env) });
 
   const sub = await authed(req, db);
   if (!sub) return json({ error: 'unauthorized' }, 401, cors);

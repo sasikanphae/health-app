@@ -92,6 +92,7 @@ function orderCard(o, batch, q) {
       <div class="grow"><b>${esc(o.customer)}</b>${o.contact ? ` <button class="link small" data-act="copyContact" data-id="${o.id}">${esc(o.contact)}</button>` : ''}
         <div class="small muted">${ago(o.created)}${o.wish ? ` · ขอรุ่น: <b>${esc(o.wish)}</b>` : ''}</div></div>
       <span class="tag ${o.status}">${STATUS[o.status]?.short ?? o.status}</span>
+      ${o.push ? '<span class="bell" title="ลูกค้าเปิดแจ้งเตือนไว้" aria-label="ลูกค้าเปิดแจ้งเตือนไว้">🔔</span>' : ''}
     </div>
     <ul>${lines}</ul>
     <div class="small">${m.price ? `ค่าพระ ${baht(m.price)} · ` : ''}ค่ากดรวม <b>${baht(m.fee)}</b>${m.price ? ` · รวม ${baht(m.total)}` : ''}${o.status === 'got' ? '' : ` (ถ้ากดได้ครบ ${m.wanted} องค์)`}</div>
@@ -99,7 +100,8 @@ function orderCard(o, batch, q) {
     ${o.reply && !editing ? `<p class="small reply pre">ตอบไว้: ${esc(o.reply)}</p>` : ''}
     ${gotForm}
     <div class="row wrap acts">${acts}
-      <button class="btn sm" data-act="copyReply" data-id="${o.id}">คัดลอกข้อความ</button>
+      <a class="btn sm" href="${lineShare(replyText(o, batch, q))}" target="_blank" rel="noopener">ส่งทางไลน์</a>
+      <button class="btn sm" data-act="copyReply" data-id="${o.id}">คัดลอก</button>
       <button class="btn ghost sm" data-act="del" data-id="${o.id}">${ui.sure === `del:${o.id}` ? 'แตะอีกครั้งเพื่อลบ' : 'ลบ'}</button>
     </div>
   </article>`;
@@ -231,6 +233,15 @@ async function save(path, body, method = 'POST', done = 'บันทึกแ�
   try { await call(path, { method, body }); toast(done); } catch (e) { toast(e.message); }
   await load();
 }
+// Status changes also say whether the customer's phone was told.
+async function setStatus(id, body, done) {
+  try {
+    const r = await call(`/shop/admin/orders/${id}`, { method: 'POST', body });
+    toast(r.notified ? `${done} · แจ้งเตือนลูกค้าแล้ว` : `${done} · ลูกค้าไม่ได้เปิดแจ้งเตือน กด "ส่งทางไลน์" ได้`);
+  } catch (e) { toast(e.message); }
+  await load();
+}
+const lineShare = (text) => `https://line.me/R/share?text=${encodeURIComponent(text)}`;
 
 const actions = {
   refresh: () => load(),
@@ -238,7 +249,7 @@ const actions = {
   pickBatch: (el) => { ui.batch = el.dataset.id; render(); },
   filter: (el) => { ui.filter = el.dataset.f; render(); },
   sort: () => { ui.sort = ui.sort === 'fee' ? 'queue' : 'fee'; render(); },
-  set: (el) => save(`/shop/admin/orders/${el.dataset.id}`, { status: el.dataset.s }, 'POST', STATUS[el.dataset.s].short),
+  set: (el) => setStatus(el.dataset.id, { status: el.dataset.s }, STATUS[el.dataset.s].short),
   gotOpen: (el) => { ui.gotFor = el.dataset.id; render(); app.querySelector('[data-form=got] input')?.focus(); },
   gotClose: () => { ui.gotFor = null; render(); },
   copyContact: (el) => copy(orderById(el.dataset.id).contact),
@@ -304,7 +315,7 @@ app.addEventListener('submit', async (e) => {
     o.lines.forEach((l, i) => { got[lineKey(l, i)] = Math.floor(parseNum(form.elements.namedItem(lineKey(l, i)).value) ?? 0); });
     ui.gotFor = null;
     const none = Object.values(got).every((n) => n === 0);
-    await save(`/shop/admin/orders/${o.id}`, { status: none ? 'missed' : 'got', got, reply: form.reply.value }, 'POST', none ? 'บันทึกว่ากดไม่ทัน' : 'บันทึกว่ากดได้');
+    await setStatus(o.id, { status: none ? 'missed' : 'got', got, reply: form.reply.value }, none ? 'บันทึกว่ากดไม่ทัน' : 'บันทึกว่ากดได้');
   } else if (form.dataset.form === 'batch') {
     const v = readBatchForm(form);
     v.items = v.items.filter((i) => i.name);

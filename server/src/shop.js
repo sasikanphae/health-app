@@ -12,13 +12,16 @@
 //   POST /shop/orders  { batchId | wish, customer, contact, lines: [{ itemId, qty, fee }], note } → { id, token }
 //   POST /shop/mine    { tickets: [{ id, token }] }  → { orders } the caller's own requests, with status and queue place
 //   POST /shop/cancel  { id, token }        → cancels a request that is still waiting
+//   POST /shop/notify  { subscription, tickets, off? } → push this browser when those requests change
+//                                            (or stop); the VAPID key comes from GET /config
 // Seller routes need  Authorization: Bearer <SHOP_ADMIN_KEY>  (a Worker secret):
 //   GET    /shop/admin                      → { batches, orders } everything
 //   PUT    /shop/admin/batches/<id>         { name, note, releaseAt, status, items }
 //   DELETE /shop/admin/batches/<id>
-//   POST   /shop/admin/orders/<id>          { status?, got?, reply? }
+//   POST   /shop/admin/orders/<id>          { status?, got?, reply? } → { notified }; a new status
+//                                            (accepted, declined, got, missed) is pushed to the customer
 //   DELETE /shop/admin/orders/<id>
-import { b64u } from './webpush.js';
+import { b64u, sendPush } from './webpush.js';
 
 export const SHOP_LIMITS = { lines: 50, qty: 9999, fee: 1_000_000, text: 200, note: 1000, tickets: 100, items: 30, orders: 2000 };
 export const ORDER_STATUSES = ['pending', 'accepted', 'got', 'missed', 'declined', 'cancelled'];
@@ -58,7 +61,59 @@ async function queuePlace(db, o) {
   return (row?.n ?? 0) + 1;
 }
 
-export async function handleShop(req, env, cors, json, now) {
+// The text a customer's phone shows when the seller changes a request.
+export function statusNote(order, batch, queue) {
+  const items = batch ? JSON.parse(batch.items || '[]') : [];
+  const what = batch?.name ?? `ขอให้ไปกด: ${order.wish ?? ''}`;
+  const lines = JSON.parse(order.lines || '[]');
+  const got = order.got ? JSON.parse(order.got) : {};
+  const reply = order.reply ? ` · ${order.reply}` : '';
+  const wanted = lines.reduce((n, l) => n + (Number(l.qty) || 0), 0);
+  if (order.status === 'accepted') return { title: 'ร้านรับงานแล้ว 🙏', body: `${what} · ${wanted} องค์${queue ? ` · คิวที่ ${queue}` : ''}${reply}` };
+  if (order.status === 'declined') return { title: 'ร้านไม่รับงานนี้', body: `${what}${reply}` };
+  if (order.status === 'missed') return { title: 'รอบนี้กดไม่ทัน', body: `${what}${reply}` };
+  if (order.status === 'got') {
+    let coins = 0; let total = 0;
+    lines.forEach((l, i) => {
+      const n = Number(got[l.itemId ?? `wish${i}`] ?? 0);
+      const price = l.itemId ? Number(items.find((it) => it.id === l.itemId)?.price) || 0 : 0;
+      coins += n;
+      total += n * (price + (Number(l.fee) || 0));
+    });
+    return { title: `กดได้แล้ว! ได้ ${coins} องค์`, body: `${what} · ยอดโอน ${total.toLocaleString('en-US')} บาท${reply}` };
+  }
+  return null;
+}
+
+async function pushOrder(db, deps, order, now) {
+  const batch = order.batch_id ? await db.prepare('SELECT name, items FROM shop_batches WHERE id = ?').bind(order.batch_id).first() : null;
+  const note = statusNote(order, batch, await queuePlace(db, order));
+  if (!note || !deps.vapid?.privateJwk) return 0;
+  const { results = [] } = await db.prepare('SELECT * FROM shop_push WHERE order_id = ?').bind(order.id).all();
+  const payload = JSON.stringify({ kind: 'shop', id: order.id, at: now, ...note });
+  let sent = 0;
+  for (const r of results) {
+    let status = 0;
+    try {
+      status = await sendPush({ endpoint: r.endpoint, keys: { p256dh: r.p256dh, auth: r.auth } }, payload, deps.vapid, { ttl: 86_400, urgency: 'high', fetchImpl: deps.fetch });
+    } catch { /* push service unreachable: the customer still sees it on the page */ }
+    if (status === 404 || status === 410) await db.prepare('DELETE FROM shop_push WHERE endpoint_id = ?').bind(r.endpoint_id).run();
+    else if (status >= 200 && status < 300) sent++;
+  }
+  return sent;
+}
+
+function validSub(s) {
+  try {
+    const u = new URL(s?.endpoint);
+    return u.protocol === 'https:' && typeof s.keys?.p256dh === 'string' && typeof s.keys?.auth === 'string'
+      && s.keys.p256dh.length < 200 && s.keys.auth.length < 100 && s.endpoint.length < 1000;
+  } catch {
+    return false;
+  }
+}
+
+export async function handleShop(req, env, cors, json, now, deps = {}) {
   const db = env.DB;
   const url = new URL(req.url);
   const path = url.pathname;
@@ -128,6 +183,28 @@ export async function handleShop(req, env, cors, json, now) {
     return json({ ok: true }, 200, cors);
   }
 
+  if (req.method === 'POST' && path === '/shop/notify') {
+    if (!validSub(body?.subscription)) return json({ error: 'bad subscription' }, 400, cors);
+    const s = body.subscription;
+    const endpointId = (await sha256(s.endpoint)).slice(0, 32);
+    if (body.off) {
+      await db.prepare('DELETE FROM shop_push WHERE endpoint_id = ?').bind(endpointId).run();
+      return json({ ok: true, linked: 0 }, 200, cors);
+    }
+    const tickets = Array.isArray(body.tickets) ? body.tickets.slice(0, SHOP_LIMITS.tickets) : [];
+    let linked = 0;
+    for (const t of tickets) {
+      if (!idOk(t?.id) || typeof t.token !== 'string') continue;
+      const r = await db.prepare('SELECT id, token_hash FROM shop_orders WHERE id = ?').bind(t.id).first();
+      if (!r || r.token_hash !== await sha256(t.token)) continue;
+      await db.prepare(`INSERT INTO shop_push (order_id, endpoint_id, endpoint, p256dh, auth, created) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(order_id, endpoint_id) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`)
+        .bind(r.id, endpointId, s.endpoint, s.keys.p256dh, s.keys.auth, now).run();
+      linked++;
+    }
+    return json({ ok: true, linked }, 200, cors);
+  }
+
   // ---------- seller ----------
   if (!path.startsWith('/shop/admin')) return json({ error: 'not found' }, 404, cors);
   if (!env.SHOP_ADMIN_KEY) return json({ error: 'ยังไม่ได้ตั้งรหัสร้าน (SHOP_ADMIN_KEY)' }, 503, cors);
@@ -136,8 +213,9 @@ export async function handleShop(req, env, cors, json, now) {
 
   if (req.method === 'GET' && path === '/shop/admin') {
     const b = await db.prepare('SELECT * FROM shop_batches ORDER BY created').all();
-    const o = await db.prepare('SELECT * FROM shop_orders ORDER BY created, id').all();
-    return json({ batches: (b.results ?? []).map(batchOut), orders: (o.results ?? []).map(orderOut), now }, 200, cors);
+    const o = await db.prepare(`SELECT o.*, (SELECT count(*) FROM shop_push p WHERE p.order_id = o.id) AS push
+      FROM shop_orders o ORDER BY o.created, o.id`).all();
+    return json({ batches: (b.results ?? []).map(batchOut), orders: (o.results ?? []).map((r) => ({ ...orderOut(r), push: r.push })), now }, 200, cors);
   }
 
   const bm = /^\/shop\/admin\/batches\/([\w-]{1,40})$/.exec(path);
@@ -169,10 +247,13 @@ export async function handleShop(req, env, cors, json, now) {
     }
     const reply = body && 'reply' in body ? str(body.reply, SHOP_LIMITS.note) : r.reply;
     await db.prepare('UPDATE shop_orders SET status = ?, got = ?, reply = ?, updated = ? WHERE id = ?').bind(status, got, reply, now, r.id).run();
-    return json({ ok: true }, 200, cors);
+    // Tell the customer when the outcome changes (a new status, or new coin counts on "got").
+    const changed = status !== r.status || (status === 'got' && got !== r.got);
+    const notified = changed ? await pushOrder(db, deps, { ...r, status, got, reply }, now) : 0;
+    return json({ ok: true, notified }, 200, cors);
   }
   if (om && req.method === 'DELETE') {
-    await db.prepare('DELETE FROM shop_orders WHERE id = ?').bind(om[1]).run();
+    await db.batch([db.prepare('DELETE FROM shop_push WHERE order_id = ?').bind(om[1]), db.prepare('DELETE FROM shop_orders WHERE id = ?').bind(om[1])]);
     return json({ ok: true }, 200, cors);
   }
   return json({ error: 'not found' }, 404, cors);

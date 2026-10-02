@@ -47,3 +47,13 @@ CREATE TABLE IF NOT EXISTS shop_orders (
   updated INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS shop_orders_batch ON shop_orders (batch_id, created);
+-- Customers' browsers that asked to be told when a request changes.
+CREATE TABLE IF NOT EXISTS shop_push (
+  order_id TEXT NOT NULL,
+  endpoint_id TEXT NOT NULL,           -- hash of the push endpoint
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created INTEGER NOT NULL,
+  PRIMARY KEY (order_id, endpoint_id)
+);

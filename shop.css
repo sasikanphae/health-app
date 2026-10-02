@@ -197,3 +197,7 @@ details textarea { margin: 6px 0; }
 .got-form label > span { font-size: .85rem; }
 .check { display: flex !important; align-items: center; gap: 10px; }
 .check input { width: 24px; min-height: 24px; }
+.push-box { border: 2px solid var(--edge); border-radius: var(--radius-sm); background: var(--c-yellow); padding: 8px 12px; margin: 10px 0; }
+.push-box p { margin: 0 0 6px; }
+.tag.new { background: var(--c-brick); color: #fff; }
+.bell { flex: none; font-size: 1.1rem; }

@@ -2,7 +2,7 @@
 // a request form per รุ่น (coins + offered fee per coin), "please go press
 // another รุ่น", and the customer's own requests with their status.
 // Tickets ({ id, token }) stay in this browser so only this customer sees them.
-import { STATUS, baht, parseNum, orderMoney, lineName, lineKey, api } from './shop.js';
+import { SERVER, STATUS, baht, parseNum, orderMoney, lineName, lineKey, api } from './shop.js';
 
 const app = document.getElementById('app');
 const toastEl = document.getElementById('toast');
@@ -14,7 +14,7 @@ const local = (() => {
 })();
 const keep = () => { try { localStorage.setItem(KEY, JSON.stringify(local)); } catch { /* private mode: tickets last for this visit */ } };
 
-const ui = { batches: null, mine: [], error: '', sending: false };
+const ui = { batches: null, mine: [], fresh: new Set(), error: '', sending: false, push: 'checking' };
 let toastTimer;
 function toast(text) {
   toastEl.textContent = text;
@@ -36,6 +36,11 @@ async function load() {
     ]);
     ui.batches = b.batches;
     ui.mine = m.orders.sort((x, y) => y.created - x.created);
+    // Requests whose status moved since this customer last looked get a "ใหม่" mark once.
+    local.seen ??= {};
+    ui.fresh = new Set(ui.mine.filter((o) => local.seen[o.id] && local.seen[o.id] !== o.status).map((o) => o.id));
+    for (const o of ui.mine) local.seen[o.id] = o.status;
+    keep();
     ui.error = '';
   } catch {
     ui.error = 'ต่อร้านไม่ได้ตอนนี้ ลองใหม่อีกครั้ง';
@@ -87,13 +92,80 @@ function wishCard() {
   </form>`;
 }
 
+// ---------- notifications (shop-sw.js shows them; the Worker sends them) ----------
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const standalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+const b64d = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+function pushSupport() {
+  if (!window.isSecureContext || !('serviceWorker' in navigator) || !('Notification' in window) || !('PushManager' in window)) {
+    return isIOS() && !standalone() ? 'ios-install' : 'unsupported';
+  }
+  if (Notification.permission === 'denied') return 'denied';
+  return null;
+}
+const swReg = () => navigator.serviceWorker.register('shop-sw.js', { scope: './shop' });
+async function subscription() {
+  const reg = await swReg();
+  await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+// Links every request in this browser to its push subscription (new ones included).
+async function linkTickets() {
+  const sub = await subscription();
+  if (!sub) return false;
+  await api('/shop/notify', { method: 'POST', body: { subscription: sub.toJSON(), tickets: local.tickets } });
+  return true;
+}
+async function pushOn() {
+  if (await Notification.requestPermission() !== 'granted') { ui.push = pushSupport() ?? 'off'; render(); return; }
+  try {
+    const reg = await swReg();
+    await navigator.serviceWorker.ready;
+    const { publicKey } = await fetch(`${SERVER.replace(/\/$/, '')}/config`).then((r) => r.json());
+    const sub = await reg.pushManager.getSubscription() ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64d(publicKey) });
+    await api('/shop/notify', { method: 'POST', body: { subscription: sub.toJSON(), tickets: local.tickets } });
+    local.push = true; keep(); ui.push = 'on';
+    toast('เปิดแจ้งเตือนแล้ว');
+  } catch {
+    toast('เปิดแจ้งเตือนไม่สำเร็จ ลองใหม่อีกครั้ง');
+  }
+  render();
+}
+async function pushOff() {
+  try {
+    const sub = await subscription();
+    if (sub) { await api('/shop/notify', { method: 'POST', body: { subscription: sub.toJSON(), off: true } }).catch(() => {}); await sub.unsubscribe(); }
+  } catch { /* already gone */ }
+  local.push = false; keep(); ui.push = 'off';
+  toast('ปิดแจ้งเตือนแล้ว'); render();
+}
+async function checkPush() {
+  const why = pushSupport();
+  if (why) { ui.push = why; return; }
+  ui.push = local.push && Notification.permission === 'granted' && await linkTickets().catch(() => false) ? 'on' : 'off';
+}
+
+function pushCard() {
+  const text = {
+    checking: '',
+    on: `<p class="small">🔔 เปิดแจ้งเตือนแล้ว จะเด้งบอกเมื่อร้านรับงาน และเมื่อร้านบันทึกผลการกดพร้อมยอดโอน</p>
+      <button class="btn ghost sm" data-act="pushOff">ปิดแจ้งเตือน</button>`,
+    off: `<p class="small">อยากรู้ทันทีที่ร้านรับงานหรือกดได้ไหม? เปิดแจ้งเตือนไว้ มือถือจะเด้งบอกแม้ปิดหน้านี้ไปแล้ว</p>
+      <button class="btn lotus block" data-act="pushOn">เปิดแจ้งเตือน</button>`,
+    'ios-install': `<p class="small"><b>iPhone:</b> แตะปุ่มแชร์ (สี่เหลี่ยมมีลูกศรชี้ขึ้น) → <b>เพิ่มไปยังหน้าจอโฮม</b> แล้วเปิดหน้านี้จากไอคอนใหม่ จึงจะเปิดแจ้งเตือนได้ (iOS 16.4 ขึ้นไป) หรือรอร้านส่งข้อความทางไลน์ก็ได้</p>`,
+    denied: '<p class="small">เบราว์เซอร์ปิดสิทธิ์แจ้งเตือนของหน้านี้ไว้ เปิดได้ในตั้งค่าของเบราว์เซอร์ หรือรอร้านส่งข้อความทางไลน์</p>',
+    unsupported: '<p class="small muted">เบราว์เซอร์นี้เปิดแจ้งเตือนไม่ได้ ร้านจะส่งข้อความทางไลน์ให้แทน</p>',
+  }[ui.push] ?? '';
+  return text ? `<div class="push-box">${text}</div>` : '';
+}
+
 function mineCard() {
   if (!ui.mine.length) return '';
   const rows = ui.mine.map((o) => {
     const m = orderMoney(o, o.items);
     const lines = o.lines.map((l, i) => `<li>${esc(lineName(l, o.items, o))} × ${l.qty} · ค่ากด ${baht(l.fee)}/องค์${o.status === 'got' && o.got ? ` → <b>ได้ ${o.got[lineKey(l, i)] ?? 0}</b>` : ''}</li>`).join('');
     return `<div class="mine ${o.status}">
-      <div class="row between wrap"><b>${esc(o.batchName ?? `ขอให้ไปกด: ${o.wish}`)}</b><span class="tag ${o.status}">${STATUS[o.status]?.short ?? o.status}</span></div>
+      <div class="row between wrap"><b>${esc(o.batchName ?? `ขอให้ไปกด: ${o.wish}`)}</b><span class="row">${ui.fresh.has(o.id) ? '<span class="tag new">ใหม่</span>' : ''}<span class="tag ${o.status}">${STATUS[o.status]?.short ?? o.status}</span></span></div>
       <div class="small muted">${STATUS[o.status]?.label ?? ''}${o.queue ? ` · คิวที่ ${o.queue}` : ''} · ส่งเมื่อ ${new Date(o.created).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
       <ul>${lines}</ul>
       <div class="small">${o.status === 'got' ? 'ที่ต้องจ่าย' : 'ประมาณ'}: ${m.price ? `ค่าพระ ${baht(m.price)} + ` : ''}ค่ากด ${baht(m.fee)}${m.price ? ` = <b>${baht(m.total)}</b>` : ''}</div>
@@ -103,6 +175,7 @@ function mineCard() {
   }).join('');
   return `<section class="card" id="mine">
     <div class="row between"><h2 class="flush">คำขอของฉัน</h2><button class="btn sm" data-act="refresh">อัปเดต</button></div>
+    ${pushCard()}
     ${rows}
   </section>`;
 }
@@ -153,7 +226,9 @@ async function send(body) {
   try {
     const r = await api('/shop/orders', { method: 'POST', body: { ...body, customer: local.me.customer, contact: local.me.contact } });
     local.tickets.push({ id: r.id, token: r.token });
+    local.seen = { ...local.seen, [r.id]: 'pending' };
     keep();
+    if (ui.push === 'on') linkTickets().catch(() => {});
     toast(`ส่งแล้ว ได้คิวที่ ${r.queue} รอร้านยืนยัน`);
     ui.sending = false;
     await load();
@@ -189,6 +264,8 @@ app.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]');
   if (!el) return;
   if (el.dataset.act === 'refresh') { load(); return; }
+  if (el.dataset.act === 'pushOn') { pushOn(); return; }
+  if (el.dataset.act === 'pushOff') { pushOff(); return; }
   if (el.dataset.act === 'cancel') {
     if (el.dataset.sure !== '1') { el.dataset.sure = '1'; el.textContent = 'แตะอีกครั้งเพื่อยืนยันยกเลิก'; return; }
     const t = local.tickets.find((x) => x.id === el.dataset.id);
@@ -208,4 +285,4 @@ setInterval(() => {
 }, 60_000);
 
 render();
-load();
+load().then(checkPush).then(render);

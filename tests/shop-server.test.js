@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { handle } from '../server/src/worker.js';
+import { generateVapidKeys, b64u } from '../server/src/webpush.js';
+import { statusNote } from '../server/src/shop.js';
 
 function fakeD1() {
   const db = new DatabaseSync(':memory:');
@@ -17,18 +19,20 @@ function fakeD1() {
   return { raw: db, prepare: (sql) => stmt(sql), batch: async (list) => { for (const s of list) await s.run(); } };
 }
 
-function setup() {
-  const env = { DB: fakeD1(), ALLOWED_ORIGINS: 'https://shop.example', SHOP_ADMIN_KEY: 'secret-key' };
+function setup(extraEnv = {}) {
+  const env = { DB: fakeD1(), ALLOWED_ORIGINS: 'https://shop.example', SHOP_ADMIN_KEY: 'secret-key', ...extraEnv };
   let now = 1_000;
+  const pushed = [];
+  const fetch = async (url, init) => { pushed.push({ url, init }); return new Response(null, { status: url.includes('gone') ? 410 : 201 }); };
   const call = async (method, path, body, key) => {
     const res = await handle(new Request(`https://w.example${path}`, {
       method,
       headers: { Origin: 'https://shop.example', 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) },
       body: body ? JSON.stringify(body) : undefined,
-    }), env, { now: now++ });
+    }), env, { now: now++, fetch });
     return { status: res.status, data: await res.json() };
   };
-  return { env, call };
+  return { env, call, pushed };
 }
 
 const batch = { name: 'รุ่นมหาลาภ', note: 'กด 20.00 น.', releaseAt: '2026-10-10T20:00', status: 'open',
@@ -90,4 +94,48 @@ test('without a seller key set, seller routes stay shut', async () => {
   delete env.SHOP_ADMIN_KEY;
   assert.equal((await call('GET', '/shop/admin', null, 'anything')).status, 503);
   assert.equal((await call('GET', '/shop/batches')).status, 200);
+});
+
+test('customers who turn on notifications are pushed when the seller accepts or records the result', async () => {
+  const keys = await generateVapidKeys();
+  const { env, call, pushed } = setup({ VAPID_PUBLIC_KEY: keys.publicKey, VAPID_PRIVATE_JWK: JSON.stringify(keys.privateJwk) });
+  await call('PUT', '/shop/admin/batches/b1', batch, 'secret-key');
+  const a = (await call('POST', '/shop/orders', { batchId: 'b1', customer: 'พี่หนึ่ง', lines: [{ itemId: 'cu', qty: 3, fee: 150 }] })).data;
+  const b = (await call('POST', '/shop/orders', { batchId: 'b1', customer: 'เจ๊สม', lines: [{ itemId: 'ag', qty: 1, fee: 300 }] })).data;
+
+  // A browser's push subscription (real P-256 keys so the payload can be encrypted).
+  const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const subscription = { endpoint: 'https://push.example/one', keys: { p256dh: b64u.encode(await crypto.subtle.exportKey('raw', kp.publicKey)), auth: b64u.encode(crypto.getRandomValues(new Uint8Array(16))) } };
+  const linked = await call('POST', '/shop/notify', { subscription, tickets: [{ id: a.id, token: a.token }, { id: b.id, token: 'wrong' }] });
+  assert.equal(linked.data.linked, 1, 'only the ticket this browser holds');
+
+  const acc = await call('POST', `/shop/admin/orders/${a.id}`, { status: 'accepted' }, 'secret-key');
+  assert.equal(acc.data.notified, 1);
+  assert.equal(pushed.length, 1);
+  assert.equal(pushed[0].url, 'https://push.example/one');
+  assert.match(pushed[0].init.headers.Authorization, /^vapid t=/);
+  assert.equal((await call('POST', `/shop/admin/orders/${b.id}`, { status: 'accepted' }, 'secret-key')).data.notified, 0, 'not subscribed');
+  assert.equal((await call('POST', `/shop/admin/orders/${a.id}`, { reply: 'แก้ข้อความ' }, 'secret-key')).data.notified, 0, 'no new status: no buzz');
+
+  const all = (await call('GET', '/shop/admin', null, 'secret-key')).data.orders;
+  assert.deepEqual(all.map((o) => o.push), [1, 0]);
+
+  // A browser that went away (410) is forgotten.
+  await call('POST', '/shop/notify', { subscription: { ...subscription, endpoint: 'https://push.example/gone' }, tickets: [{ id: a.id, token: a.token }] });
+  await call('POST', `/shop/admin/orders/${a.id}`, { status: 'got', got: { cu: 2 } }, 'secret-key');
+  assert.equal(env.DB.raw.prepare("SELECT count(*) n FROM shop_push WHERE endpoint LIKE '%gone'").get().n, 0);
+  assert.equal(env.DB.raw.prepare('SELECT count(*) n FROM shop_push').get().n, 1);
+
+  // Turning it off removes this browser from every request.
+  await call('POST', '/shop/notify', { subscription, off: true });
+  assert.equal(env.DB.raw.prepare('SELECT count(*) n FROM shop_push').get().n, 0);
+});
+
+test('notification texts say what changed and how much to transfer', () => {
+  const b = { name: 'รุ่นมหาลาภ', items: JSON.stringify(batch.items) };
+  const o = { status: 'got', lines: JSON.stringify([{ itemId: 'cu', qty: 3, fee: 150 }, { itemId: 'ag', qty: 1, fee: 300 }]), got: JSON.stringify({ cu: 2, ag: 1 }), reply: 'โอนได้เลย' };
+  assert.deepEqual(statusNote(o, b, 1), { title: 'กดได้แล้ว! ได้ 3 องค์', body: 'รุ่นมหาลาภ · ยอดโอน 3,100 บาท · โอนได้เลย' });
+  assert.deepEqual(statusNote({ ...o, status: 'accepted', reply: '' }, b, 2), { title: 'ร้านรับงานแล้ว 🙏', body: 'รุ่นมหาลาภ · 4 องค์ · คิวที่ 2' });
+  assert.equal(statusNote({ ...o, status: 'missed', wish: 'รุ่นแรก', reply: '' }, null, null).body, 'ขอให้ไปกด: รุ่นแรก');
+  assert.equal(statusNote({ ...o, status: 'pending' }, b, 1), null);
 });
