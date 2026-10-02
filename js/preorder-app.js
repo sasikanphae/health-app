@@ -41,6 +41,26 @@ async function share(text) {
   copy(text);
 }
 
+// In-page yes/no (some app views and embeds never show the browser's confirm()).
+function ask(text, okLabel = 'ยืนยัน') {
+  return new Promise((resolve) => {
+    const box = document.createElement('div');
+    box.className = 'ask';
+    box.setAttribute('role', 'alertdialog');
+    box.setAttribute('aria-modal', 'true');
+    box.innerHTML = `<div class="ask-card"><p>${esc(text)}</p>
+      <div class="row"><button class="btn sm grow" data-a="no">ไม่ใช่</button>
+      <button class="btn primary sm grow" data-a="yes">${esc(okLabel)}</button></div></div>`;
+    const done = (v) => { box.remove(); resolve(v); };
+    box.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-a]')?.dataset.a;
+      if (a) done(a === 'yes'); else if (e.target === box) done(false);
+    });
+    document.body.append(box);
+    box.querySelector('[data-a=yes]').focus();
+  });
+}
+
 const batchById = (id) => data.batches.find((b) => b.id === id);
 const orderById = (id) => data.orders.find((o) => o.id === id);
 const itemName = (b, id) => b.items.find((i) => i.id === id)?.name ?? '—';
@@ -79,7 +99,8 @@ function renderHome() {
   return `${top('พรีออเดอร์พระ')}
     <p class="lead">รับจองแต่ละรุ่น เรียงคิวให้เอง ตั้งราคาต่อเหรียญ ลูกค้าสั่งทีละหลายคนก็วางรายชื่อจากแชทได้เลย</p>
     <button class="btn primary big block" data-act="newBatch">+ เพิ่มรุ่นใหม่</button>
-    ${cards || '<div class="card empty">ยังไม่มีรุ่นที่เปิดจอง เริ่มจากเพิ่มรุ่นแรกได้เลย</div>'}
+    ${cards || `<div class="card empty">ยังไม่มีรุ่นที่เปิดจอง เริ่มจากเพิ่มรุ่นแรกได้เลย
+      <button class="btn sm block" data-act="sample">ลองด้วยข้อมูลตัวอย่าง</button></div>`}
     <div class="row wrap foot-tools">
       <button class="btn ghost sm" data-act="export">สำรองข้อมูล</button>
       <label class="btn ghost sm">นำข้อมูลกลับ<input type="file" accept="application/json" data-act="import" hidden></label>
@@ -323,6 +344,30 @@ function render() {
   if (ui.view === 'orderEdit') updateDraftTotal();
 }
 
+// A made-up batch to try the screens with (names and numbers are examples).
+function loadSample() {
+  const b = {
+    id: newId(), name: 'ตัวอย่าง: เหรียญรุ่นมหาลาภ', note: 'ข้อมูลตัวอย่าง ลบได้ที่ "แก้รุ่น / ราคา"', closeOn: null,
+    status: 'open', nextQueue: 4, createdAt: Date.now(),
+    items: [
+      { id: newId(), name: 'เนื้อทองแดง', price: 500, quota: 20, tiers: [{ min: 10, price: 450 }] },
+      { id: newId(), name: 'เนื้อเงิน', price: 1500, quota: 5, tiers: [] },
+    ],
+  };
+  const [cu, ag] = b.items.map((i) => i.id);
+  const line = (who, itemId, qty) => ({ id: newId(), who, itemId, qty });
+  const o = (queue, customer, lines, extra = {}) => ({
+    id: newId(), batchId: b.id, queue, customer, contact: '', note: '', prices: {}, shipping: 50, paid: 0, status: 'booked', at: Date.now(), lines, ...extra,
+  });
+  data.batches.push(b);
+  data.orders.push(
+    o(1, 'พี่หนึ่ง (ตัวอย่าง)', [line('สมชาย', cu, 5), line('สมหญิง', cu, 3), line('ป้าแดง', ag, 2), line('ลุงมี', cu, 4)], { paid: 2000 }),
+    o(2, 'เจ๊สม (ตัวอย่าง)', [line('', cu, 6), line('', ag, 2)], { status: 'paid', paid: 6050 }),
+    o(3, 'น้องบี (ตัวอย่าง)', [line('', cu, 4), line('แม่', ag, 3)]),
+  );
+  save();
+}
+
 // ---------- taps ----------
 const actions = {
   go: (el) => go(el.dataset.view),
@@ -344,9 +389,9 @@ const actions = {
     v.items = v.items.filter((i) => i.id !== el.dataset.id);
     rerenderBatchForm(v);
   },
-  delBatch() {
+  async delBatch() {
     const b = batchById(ui.batchId);
-    if (!confirm(`ลบ "${b.name}" และออเดอร์ทั้งหมดของรุ่นนี้? กู้คืนไม่ได้`)) return;
+    if (!await ask(`ลบ "${b.name}" และออเดอร์ทั้งหมดของรุ่นนี้? กู้คืนไม่ได้`)) return;
     data.batches = data.batches.filter((x) => x.id !== b.id);
     data.orders = data.orders.filter((o) => o.batchId !== b.id);
     save(); go('home');
@@ -392,10 +437,10 @@ const actions = {
     const coins = rows.reduce((s, r) => s + r.qty, 0);
     toast(`ใส่ ${rows.length} คน ${coins} เหรียญ${skipped.length ? ` · ข้าม ${skipped.length} บรรทัด` : ''}`);
   },
-  status(el) {
+  async status(el) {
     const o = orderById(ui.orderId);
     const s = el.dataset.s;
-    if (s === 'cancelled' && o.status !== 'cancelled' && !confirm(`ยกเลิกคิวที่ ${o.queue}? เหรียญจะถูกส่งต่อให้คิวสำรองถัดไป`)) return;
+    if (s === 'cancelled' && o.status !== 'cancelled' && !await ask(`ยกเลิกคิวที่ ${o.queue}? เหรียญจะถูกส่งต่อให้คิวสำรองถัดไป`)) return;
     o.status = s;
     save(); render();
   },
@@ -417,12 +462,13 @@ const actions = {
     const b = batchById(o.batchId);
     share(confirmText(b, o, allocate(b, data.orders)));
   },
-  delOrder() {
+  async delOrder() {
     const o = orderById(ui.orderId);
-    if (!confirm(`ลบออเดอร์คิวที่ ${o.queue} ของ ${o.customer}? (ถ้าลูกค้าแค่ยกเลิก ใช้ปุ่ม "ยกเลิก" ดีกว่า จะเก็บประวัติไว้)`)) return;
+    if (!await ask(`ลบออเดอร์คิวที่ ${o.queue} ของ ${o.customer}? (ถ้าลูกค้าแค่ยกเลิก ใช้ปุ่ม "ยกเลิก" ดีกว่า จะเก็บประวัติไว้)`)) return;
     data.orders = data.orders.filter((x) => x.id !== o.id);
     save(); go('batch');
   },
+  sample() { loadSample(); render(); },
   export() {
     const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -459,7 +505,7 @@ app.addEventListener('change', async (e) => {
   if (!file) return;
   try {
     const next = normalizeStore(JSON.parse(await file.text()));
-    if (!confirm(`นำข้อมูลกลับ ${next.batches.length} รุ่น ${next.orders.length} ออเดอร์? ข้อมูลในเครื่องตอนนี้จะถูกแทนที่`)) return;
+    if (!await ask(`นำข้อมูลกลับ ${next.batches.length} รุ่น ${next.orders.length} ออเดอร์? ข้อมูลในเครื่องตอนนี้จะถูกแทนที่`)) return;
     data = next; save(); go('home'); toast('นำข้อมูลกลับแล้ว');
   } catch { toast('ไฟล์นี้อ่านไม่ได้'); }
 });
