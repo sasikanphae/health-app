@@ -1,5 +1,5 @@
 // Offline support (network first, cache fallback) and notification button handling.
-const CACHE = 'health-app-v20';
+const CACHE = 'health-app-v21';
 const ASSETS = [
   './',
   'index.html',
@@ -61,6 +61,10 @@ const ASSETS = [
   'js/merit-view.js',
   'js/push-client.js',
   'js/push-view.js',
+  'preorder.html',
+  'preorder.css',
+  'js/preorder.js',
+  'js/preorder-app.js',
 ];
 // Google Fonts are cached too, so the app keeps its look offline.
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];

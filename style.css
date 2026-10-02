@@ -131,6 +131,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .btn.danger { color: var(--accent); border-color: var(--accent); }
 .btn.big { min-height: 56px; font-size: 1.05rem; }
 .btn.block { width: 100%; }
+a.btn { text-decoration: none; }
 .btn.sm { min-height: 42px; padding: 8px 14px; font-size: .93rem; }
 .btn:active, .chip:active, .opt:active, .tick:active { background: var(--tint); }
 .btn.primary:active { opacity: .85; background: var(--accent); }

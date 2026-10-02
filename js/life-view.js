@@ -318,7 +318,8 @@ export function createLife(ctx) {
       <div class="page-title"><h1>ธุระ</h1>${badge('notes', { size: 48 })}</div>
       <div class="seg" role="tablist" aria-label="หมวด">${tabs.map(([k, l]) =>
         `<button role="tab" aria-selected="${ui.lifeTab === k}" data-act="lifeTab" data-tab="${k}">${l}</button>`).join('')}</div>
-      ${body()}`;
+      ${body()}
+      <a class="btn soft block gap-top" href="preorder.html">พรีออเดอร์พระ · คิวและราคาต่อเหรียญ</a>`;
   }
 
   // ---------- today: life items join the timeline ----------
