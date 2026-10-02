@@ -13,7 +13,9 @@
 //   POST   /test        → sends one test push now
 //   DELETE /subscribe   → forget this device and its jobs
 // Authenticated routes need  Authorization: Bearer <id>.<token>
+// /shop/* is the รับกดพระ service (see shop.js).
 import { sendPush, b64u } from './webpush.js';
+import { handleShop } from './shop.js';
 
 export const LIMITS = { jobs: 300, payload: 3000, horizonDays: 8, lateMs: 2 * 3600_000, perRun: 200, tries: 3 };
 
@@ -81,6 +83,8 @@ export async function handle(req, env, deps = {}) {
       .bind(id, s.endpoint, s.keys.p256dh, s.keys.auth, await sha256(token), now, now).run();
     return json({ id, token }, 200, cors);
   }
+
+  if (url.pathname.startsWith('/shop/')) return handleShop(req, env, cors, json, now);
 
   const sub = await authed(req, db);
   if (!sub) return json({ error: 'unauthorized' }, 401, cors);

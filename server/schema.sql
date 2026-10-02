@@ -19,3 +19,31 @@ CREATE TABLE IF NOT EXISTS jobs (
   PRIMARY KEY (sub_id, job_id)
 );
 CREATE INDEX IF NOT EXISTS jobs_at ON jobs (at);
+
+-- รับกดพระ (see src/shop.js): the รุ่น the seller presses CF for, and customers' requests.
+CREATE TABLE IF NOT EXISTS shop_batches (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  release_at TEXT NOT NULL DEFAULT '', -- when the รุ่น opens for CF, as the seller typed it
+  items TEXT NOT NULL DEFAULT '[]',    -- JSON [{ id, name, price, fee }]
+  status TEXT NOT NULL DEFAULT 'open', -- open | closed
+  created INTEGER NOT NULL,
+  updated INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS shop_orders (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT,                       -- NULL = "please go press another รุ่น" (see wish)
+  wish TEXT,
+  customer TEXT NOT NULL,
+  contact TEXT NOT NULL DEFAULT '',
+  lines TEXT NOT NULL,                 -- JSON [{ itemId, qty, fee, who }]
+  note TEXT NOT NULL DEFAULT '',
+  token_hash TEXT NOT NULL,            -- the customer's browser keeps the token; only its hash is stored
+  status TEXT NOT NULL,                -- pending | accepted | got | missed | declined | cancelled
+  got TEXT,                            -- JSON { itemId|"wish": coins obtained }
+  reply TEXT NOT NULL DEFAULT '',
+  created INTEGER NOT NULL,
+  updated INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS shop_orders_batch ON shop_orders (batch_id, created);

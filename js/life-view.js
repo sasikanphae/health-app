@@ -319,7 +319,7 @@ export function createLife(ctx) {
       <div class="seg" role="tablist" aria-label="หมวด">${tabs.map(([k, l]) =>
         `<button role="tab" aria-selected="${ui.lifeTab === k}" data-act="lifeTab" data-tab="${k}">${l}</button>`).join('')}</div>
       ${body()}
-      <a class="btn soft block gap-top" href="preorder.html">พรีออเดอร์พระ · คิวและราคาต่อเหรียญ</a>`;
+      <a class="btn soft block gap-top" href="shop-admin.html">หน้าร้าน รับกดพระ</a>`;
   }
 
   // ---------- today: life items join the timeline ----------

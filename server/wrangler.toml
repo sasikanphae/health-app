@@ -17,3 +17,4 @@ ALLOWED_ORIGINS = "https://sasikanphae.github.io"
 VAPID_SUBJECT = "mailto:you@example.com"
 # Secrets (set with `npx wrangler secret put ...`, never commit them):
 #   VAPID_PUBLIC_KEY, VAPID_PRIVATE_JWK
+#   SHOP_ADMIN_KEY  (the seller password for รับกดพระ, see src/shop.js)
